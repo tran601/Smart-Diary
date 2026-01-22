@@ -44,10 +44,49 @@ import type {
 import "react-quill/dist/quill.snow.css";
 import "./styles/app.css";
 
+// 引导步骤图片
+import onboardingStep1 from "./assets/onboarding/step1-settings-v2.png";
+import onboardingStep2 from "./assets/onboarding/step2-conversation-v2.png";
+import onboardingStep3 from "./assets/onboarding/step3-report-v2.png";
+
 dayjs.locale("zh-cn");
 
 const { Header, Content, Sider } = Layout;
 const { Title, Text } = Typography;
+
+// 引导步骤配置
+const ONBOARDING_STEPS = [
+  {
+    title: "步骤一：配置 AI 服务",
+    image: onboardingStep1,
+    descriptions: [
+      "1. 点击顶部「设置」标签进入设置页面",
+      "2. 在「AI 设置」区域配置您的 API Key、Base URL 和模型 ID",
+      "3. 点击「保存 AI 设置」完成配置",
+      "完成配置后即可使用 AI 功能！"
+    ]
+  },
+  {
+    title: "步骤二：AI 对话功能",
+    image: onboardingStep2,
+    descriptions: [
+      "与 AI 进行对话，AI 可以在对话过程中实时判断待办事项",
+      "点击「提取信息」按钮，AI 会根据聊天记录生成待办事项",
+      "点击「生成日记」按钮，AI 会根据聊天记录自动生成当日日记",
+      "在底部输入框中输入消息，点击「发送」开始对话"
+    ]
+  },
+  {
+    title: "步骤三：周报智能生成",
+    image: onboardingStep3,
+    descriptions: [
+      "点击顶部「周报」标签进入周报页面",
+      "选择开始时间和结束时间来设定周区间",
+      "点击「统计」查看该时间段的日记和任务统计",
+      "点击「生成周报」按钮，AI 会自动汇总生成周报"
+    ]
+  }
+];
 
 const MODE_OPTIONS: { label: string; value: DiaryMode; className: string }[] = [
   { label: "Traditional", value: "traditional", className: "mode-item-traditional" },
@@ -359,6 +398,7 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [activeTab, setActiveTab] = useState("diary");
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
   const [calendarValue, setCalendarValue] = useState<Dayjs>(() => dayjs());
   const quillRef = useRef<ReactQuill | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -957,15 +997,34 @@ export default function App() {
   const handleCloseOnboarding = async () => {
     if (!settings?.firstLaunch) {
       setIsOnboardingOpen(false);
+      setOnboardingStep(0);
       return;
     }
     try {
       const nextSettings = await settingsService.set({ firstLaunch: false });
       applySettings(nextSettings);
       setIsOnboardingOpen(false);
+      setOnboardingStep(0);
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleOnboardingPrev = () => {
+    setOnboardingStep((prev) => Math.max(0, prev - 1));
+  };
+
+  const handleOnboardingNext = () => {
+    if (onboardingStep < ONBOARDING_STEPS.length - 1) {
+      setOnboardingStep((prev) => prev + 1);
+    } else {
+      void handleCloseOnboarding();
+    }
+  };
+
+  const handleOpenOnboarding = () => {
+    setOnboardingStep(0);
+    setIsOnboardingOpen(true);
   };
 
   const modeNoticeText =
@@ -1177,10 +1236,13 @@ export default function App() {
                     ) : null}
                   </div>
                   <div className="settings-section">
-                    <Text strong>关于</Text>
+                    <Text strong>帮助与关于</Text>
                     <Text type="secondary">
                       Smart Diary 桌面端，数据完全本地保存。
                     </Text>
+                    <Button type="primary" onClick={handleOpenOnboarding} style={{ width: "fit-content" }}>
+                      重新查看新手引导
+                    </Button>
                   </div>
                 </div>
               )
@@ -1742,14 +1804,59 @@ export default function App() {
       <Modal
         title="欢迎使用 Smart Diary"
         open={isOnboardingOpen}
-        onOk={handleCloseOnboarding}
         onCancel={handleCloseOnboarding}
-        okText="开始使用"
-        cancelButtonProps={{ style: { display: "none" } }}
+        width={700}
+        footer={null}
+        className="onboarding-modal"
       >
-        <Text>
-          传统模式完全离线；AI 模式将把对话发送至配置的 AI API。你可以在设置中随时切换。
-        </Text>
+        <div className="onboarding-content">
+          {/* 步骤指示器 */}
+          <div className="onboarding-steps-indicator">
+            {ONBOARDING_STEPS.map((_, index) => (
+              <span
+                key={index}
+                className={`onboarding-step-dot${index === onboardingStep ? " active" : ""}${index < onboardingStep ? " completed" : ""}`}
+              />
+            ))}
+          </div>
+
+          {/* 当前步骤内容 */}
+          <div className="onboarding-step">
+            <Title level={4} className="onboarding-step-title">
+              {ONBOARDING_STEPS[onboardingStep].title}
+            </Title>
+            <div className="onboarding-image-container">
+              <img
+                src={ONBOARDING_STEPS[onboardingStep].image}
+                alt={ONBOARDING_STEPS[onboardingStep].title}
+                className="onboarding-image"
+              />
+            </div>
+            <div className="onboarding-descriptions">
+              {ONBOARDING_STEPS[onboardingStep].descriptions.map((desc, index) => (
+                <Text key={index} className="onboarding-description">
+                  {desc}
+                </Text>
+              ))}
+            </div>
+          </div>
+
+          {/* 导航按钮 */}
+          <div className="onboarding-footer">
+            <Button
+              onClick={handleOnboardingPrev}
+              disabled={onboardingStep === 0}
+            >
+              上一步
+            </Button>
+            <Text type="secondary" className="onboarding-step-count">
+              {onboardingStep + 1} / {ONBOARDING_STEPS.length}
+            </Text>
+            <Button type="primary" onClick={handleOnboardingNext}>
+              {onboardingStep === ONBOARDING_STEPS.length - 1 ? "开始使用" : "下一步"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </Layout>
   );

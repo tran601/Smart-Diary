@@ -1,0 +1,43 @@
+# 依赖
+node_modules/
+
+# 构建输出
+dist/
+electron/dist/
+
+# 打包输出
+release/
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.temp
+
+# 项目外文件
+.agent/
+.shared/
+.vscode/
+project_md/
+AGENTS.md

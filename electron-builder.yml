@@ -1,0 +1,41 @@
+appId: com.smartdiary.app
+productName: SmartDiary
+forceCodeSigning: false
+directories:
+  output: release
+asar: true
+asarUnpack:
+  - "**/*.node"
+files:
+  - dist/**
+  - electron/dist/**
+  - database/**
+  - package.json
+  - node_modules/**
+extraResources:
+  - from: database/schema.sql
+    to: database/schema.sql
+win:
+  target:
+    - target: nsis
+      arch: x64
+    - target: portable
+      arch: x64
+  artifactName: ${productName}-${version}-win.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+mac:
+  target: dmg
+  category: public.app-category.productivity
+  artifactName: ${productName}-${version}-mac.${ext}
+linux:
+  target: AppImage
+  category: Office
+  artifactName: ${productName}-${version}-linux.${ext}

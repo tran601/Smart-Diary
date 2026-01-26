@@ -12,7 +12,12 @@ interface DiaryState {
   error: string | null;
   loadDiaries: () => Promise<void>;
   selectDiary: (id: string) => Promise<void>;
-  createDiary: (mode: DiaryMode, date?: string) => Promise<void>;
+  createDiary: (
+    mode: DiaryMode,
+    date?: string,
+    input?: { title?: string; content?: string }
+  ) => Promise<Diary | null>;
+  clearActiveDiary: () => void;
   saveDiary: () => Promise<boolean>;
   deleteDiary: (id: string) => Promise<void>;
   setTitle: (title: string) => void;
@@ -80,12 +85,14 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
       set({ isLoading: false });
     }
   },
-  createDiary: async (mode, date) => {
+  createDiary: async (mode, date, input) => {
     set({ isSaving: true });
     try {
+      const title = input?.title ?? "";
+      const content = input?.content ?? EMPTY_CONTENT;
       const created = await diaryService.create({
-        title: "",
-        content: EMPTY_CONTENT,
+        title,
+        content,
         mode,
         date
       });
@@ -96,12 +103,15 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
         title: created.title ?? "",
         editorContent: created.content ?? ""
       });
+      return created;
     } catch (err) {
       set({ error: toErrorMessage(err) });
+      return null;
     } finally {
       set({ isSaving: false });
     }
   },
+  clearActiveDiary: () => set({ activeDiary: null, title: "", editorContent: "" }),
   saveDiary: async () => {
     const { activeDiary, title, editorContent } = get();
     if (!activeDiary) {

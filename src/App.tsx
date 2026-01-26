@@ -12,6 +12,7 @@
   Select,
   Segmented,
   Space,
+  Spin,
   Tabs,
   Tag,
   Typography,
@@ -39,7 +40,8 @@ import type {
   WeeklyReport,
   AppSettingsPublic,
   DiaryMode,
-  ExtractedInfo
+  ExtractedInfo,
+  Mood
 } from "./types/database";
 import "react-quill/dist/quill.snow.css";
 import "./styles/app.css";
@@ -125,6 +127,18 @@ const STATUS_COLORS: Partial<Record<TaskStatus, string>> = {
   completed: "green"
 };
 
+const AI_NOTICE_STORAGE_KEY = "smartdiary_ai_notice_collapsed";
+
+const MOOD_LABELS: Record<Mood, string> = {
+  happy: "开心",
+  sad: "难过",
+  anxious: "焦虑",
+  angry: "生气",
+  calm: "平静",
+  tired: "疲惫",
+  excited: "兴奋"
+};
+
 const THEME_OPTIONS: { label: string; value: AppSettingsPublic["theme"] }[] = [
   { label: "浅色", value: "light" },
   { label: "深色", value: "dark" }
@@ -154,6 +168,12 @@ function splitLines(input: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+const EMPTY_EDITOR_CONTENT = "<p><br></p>";
+
+function formatDiaryDate(date: string) {
+  return dayjs(date).format("YYYY/MM/DD ddd");
 }
 
 type TodoSuggestion = ExtractedInfo["todos"][number];
@@ -230,6 +250,7 @@ function TaskRow({ task, isSaving, onUpdate, onComplete, onDelete }: TaskRowProp
 
   const statusColor = STATUS_COLORS[task.status];
   const actions: React.ReactNode[] = [];
+  const deadlineLabel = deadline.trim() ? deadline : "未设置";
 
   if (task.status !== "completed") {
     actions.push(
@@ -264,14 +285,28 @@ function TaskRow({ task, isSaving, onUpdate, onComplete, onDelete }: TaskRowProp
       actions={actions}
     >
       <div className="task-main">
-        <div className="task-title-row">
-          <Text strong>{task.title}</Text>
-          <Tag color={PRIORITY_COLORS[priority]}>{PRIORITY_LABELS[priority]}</Tag>
-          <Tag color={statusColor}>{STATUS_LABELS[task.status]}</Tag>
+        <div className="task-head">
+          <div className="task-title-block">
+            <Text strong className="task-title">
+              {task.title}
+            </Text>
+            {task.description ? (
+              <Text type="secondary" className="task-desc">
+                {task.description}
+              </Text>
+            ) : null}
+          </div>
+          <div className="task-tags">
+            <Tag color={PRIORITY_COLORS[priority]}>{PRIORITY_LABELS[priority]}</Tag>
+            <Tag color={statusColor}>{STATUS_LABELS[task.status]}</Tag>
+          </div>
         </div>
-        {task.description ? (
-          <Text type="secondary">{task.description}</Text>
-        ) : null}
+        <div className="task-meta-row">
+          <Text type="secondary" className="task-meta-label">
+            截止
+          </Text>
+          <Text className="task-meta-value">{deadlineLabel}</Text>
+        </div>
         <div className="task-controls">
           <span className="task-control-group">
             <Text type="secondary">优先级</Text>
@@ -320,11 +355,13 @@ export default function App() {
     activeDiary,
     title,
     editorContent,
+    isLoading: isDiaryLoading,
     isSaving: isDiarySaving,
     error: diaryError,
     loadDiaries,
     selectDiary,
     createDiary,
+    clearActiveDiary,
     saveDiary,
     deleteDiary,
     setTitle,
@@ -397,6 +434,10 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [activeTab, setActiveTab] = useState("diary");
+  const [diarySearch, setDiarySearch] = useState("");
+  const [draftDate, setDraftDate] = useState<string | null>(null);
+  const [aiNoticeCollapsed, setAiNoticeCollapsed] = useState(false);
+  const [isCalendarCollapsed, setIsCalendarCollapsed] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [calendarValue, setCalendarValue] = useState<Dayjs>(() => dayjs());
@@ -416,6 +457,9 @@ export default function App() {
     priority: TaskPriority;
     dueDate: string;
   } | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("medium");
+  const [newTaskDeadline, setNewTaskDeadline] = useState("");
 
   const pendingTasks = useMemo(
     () => tasks.filter((task) => task.status !== "completed"),
@@ -456,6 +500,26 @@ export default function App() {
     });
     return set;
   }, [diaries]);
+  const diarySearchValue = diarySearch.trim().toLowerCase();
+  const filteredDiaries = useMemo(() => {
+    if (!diarySearchValue) {
+      return diaries;
+    }
+    return diaries.filter((diary) => {
+      const titleText = diary.title ?? "";
+      const contentText = diary.content ? stripHtmlText(diary.content) : "";
+      const dateText = diary.date ?? "";
+      const haystack = `${titleText} ${contentText} ${dateText}`.toLowerCase();
+      return haystack.includes(diarySearchValue);
+    });
+  }, [diaries, diarySearchValue]);
+  const draftWordCount = useMemo(
+    () => stripHtmlText(editorContent).length,
+    [editorContent]
+  );
+  const isDrafting = Boolean(draftDate && !activeDiary);
+  const editorDateLabel = activeDiary?.date ?? draftDate ?? "";
+  const editorWordCount = activeDiary?.wordCount ?? draftWordCount;
 
   const applySettings = useCallback(
     (nextSettings: AppSettingsPublic) => {
@@ -529,10 +593,34 @@ export default function App() {
   }, [conversationError, clearConversationError]);
 
   useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(AI_NOTICE_STORAGE_KEY);
+      if (stored === "true") {
+        setAiNoticeCollapsed(true);
+      }
+    } catch {
+      setAiNoticeCollapsed(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (appMode !== "ai" && activeTab !== "diary" && activeTab !== "settings") {
       setActiveTab("diary");
     }
   }, [appMode, activeTab]);
+
+  useEffect(() => {
+    if (activeDiary) {
+      setDraftDate(null);
+    }
+  }, [activeDiary?.id]);
+
+  useEffect(() => {
+    if (activeTab !== "diary" && draftDate && !activeDiary) {
+      setDraftDate(null);
+      clearActiveDiary();
+    }
+  }, [activeTab, activeDiary, clearActiveDiary, draftDate]);
 
   useEffect(() => {
     if (activeReport?.reportContent) {
@@ -676,9 +764,13 @@ export default function App() {
     const key = value.format("YYYY-MM-DD");
     const diary = diaryByDate.get(key);
     if (diary) {
+      setDraftDate(null);
       void selectDiary(diary.id);
     } else {
-      void createDiary(appMode, key);
+      setDraftDate(key);
+      clearActiveDiary();
+      setTitle("");
+      setEditorContent(EMPTY_EDITOR_CONTENT);
     }
   };
   const handleCalendarPanelChange: CalendarProps<Dayjs>["onPanelChange"] = (
@@ -735,15 +827,49 @@ export default function App() {
     }
   };
 
-  const handleSaveDiary = useCallback(async () => {
-    const saved = await saveDiary();
-    if (saved) {
-      message.success("日记已保存");
+  const handleToggleAiNotice = (collapsed: boolean) => {
+    setAiNoticeCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(
+        AI_NOTICE_STORAGE_KEY,
+        collapsed ? "true" : "false"
+      );
+    } catch {
+      // ignore storage errors
     }
-  }, [saveDiary]);
+  };
+
+  const handleSaveDiary = useCallback(async () => {
+    if (activeDiary) {
+      const saved = await saveDiary();
+      if (saved) {
+        message.success("日记已保存");
+      }
+      return;
+    }
+    if (!draftDate) {
+      message.warning("请选择或新建日记");
+      return;
+    }
+    const created = await createDiary(appMode, draftDate, {
+      title: title.trim() || "Untitled",
+      content: editorContent || EMPTY_EDITOR_CONTENT
+    });
+    if (created) {
+      setDraftDate(null);
+      message.success("日记已保存");
+    } else {
+      message.error("保存失败");
+    }
+  }, [activeDiary, appMode, createDiary, draftDate, editorContent, saveDiary, title]);
 
   const handleDeleteDiary = useCallback(() => {
     if (!activeDiary) {
+      if (draftDate) {
+        setDraftDate(null);
+        clearActiveDiary();
+        message.info("已放弃未保存日记");
+      }
       return;
     }
     Modal.confirm({
@@ -754,7 +880,7 @@ export default function App() {
       cancelText: "取消",
       onOk: () => deleteDiary(activeDiary.id)
     });
-  }, [activeDiary, deleteDiary]);
+  }, [activeDiary, clearActiveDiary, deleteDiary, draftDate]);
 
   const handleSendMessage = useCallback(async () => {
     const content = messageInput.trim();
@@ -820,6 +946,28 @@ export default function App() {
       message.success(`已提取 ${result.tasks.length} 个任务`);
     }
   }, [extractInfo, loadTasks]);
+
+  const handleCreateTask = useCallback(async () => {
+    const title = newTaskTitle.trim();
+    if (!title) {
+      message.error("任务标题不能为空");
+      return;
+    }
+    const deadline = normalizeTodoDueDate(newTaskDeadline);
+    const created = await createTask({
+      title,
+      priority: newTaskPriority,
+      deadline: deadline || undefined
+    });
+    if (created) {
+      message.success("任务已新增");
+      setNewTaskTitle("");
+      setNewTaskPriority("medium");
+      setNewTaskDeadline("");
+    } else {
+      message.error("新增任务失败");
+    }
+  }, [createTask, newTaskDeadline, newTaskPriority, newTaskTitle]);
 
   const handleGenerateDiary = useCallback(async () => {
     const diary = await generateDiaryDraft();
@@ -1066,6 +1214,35 @@ export default function App() {
         </div>
       </Header>
       <Content className="app-content">
+        {appMode === "ai" ? (
+          <div className={`ai-notice${aiNoticeCollapsed ? " is-collapsed" : ""}`}>
+            <div className="ai-notice-content">
+              <Text strong className="ai-notice-title">
+                AI 模式提示
+              </Text>
+              <Text type="secondary" className="ai-notice-desc">
+                {aiNoticeCollapsed
+                  ? "AI 模式 · 内容将发送至 AI 服务"
+                  : "在 AI 模式下，聊天、生成日记、提取任务等内容会发送到 AI 服务进行处理。"}
+              </Text>
+            </div>
+            <div className="ai-notice-actions">
+              {aiNoticeCollapsed ? (
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => handleToggleAiNotice(false)}
+                >
+                  展开
+                </Button>
+              ) : (
+                <Button size="small" onClick={() => handleToggleAiNotice(true)}>
+                  我知道了
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : null}
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -1075,39 +1252,165 @@ export default function App() {
               label: "日记",
               children: (
                 <Layout className="diary-layout">
-                  <Sider width={280} className="diary-sider">
+                  <Sider width={320} className="diary-sider">
                     <div className="diary-sider-header">
-                      <Text strong>日历</Text>
+                      <div className="diary-sider-title">
+                        <Text strong>日记</Text>
+                        <Text type="secondary" className="diary-sider-count">
+                          {filteredDiaries.length} 篇
+                        </Text>
+                      </div>
+                      <Button
+                        size="small"
+                        onClick={() => loadDiaries()}
+                        loading={isDiaryLoading}
+                      >
+                        刷新
+                      </Button>
                     </div>
-                    <div className="diary-calendar">
-                      <Calendar
-                        fullscreen={false}
-                        value={calendarValue}
-                        onSelect={handleCalendarSelect}
-                        onPanelChange={handleCalendarPanelChange}
-                        locale={calendarLocale}
-                        fullCellRender={calendarCellRender}
-                        headerRender={calendarHeaderRender}
+                    <div className="diary-sider-search">
+                      <Input
+                        placeholder="搜索标题、内容或日期"
+                        value={diarySearch}
+                        onChange={(event) => setDiarySearch(event.target.value)}
+                        allowClear
                       />
+                    </div>
+                    {diaryError ? (
+                      <div className="panel-state panel-state--error">
+                        <Alert
+                          type="error"
+                          message={diaryError}
+                          showIcon
+                          closable
+                          onClose={clearDiaryError}
+                          className="panel-state-alert"
+                        />
+                      </div>
+                    ) : null}
+                    <div className="diary-sider-scroll">
+                      <div
+                        className={`diary-calendar-block${isCalendarCollapsed ? " is-collapsed" : ""
+                          }`}
+                      >
+                        <div className="diary-calendar-header">
+                          <Text type="secondary">日历</Text>
+                          <Button
+                            size="small"
+                            type="link"
+                            onClick={() =>
+                              setIsCalendarCollapsed((prev) => !prev)
+                            }
+                          >
+                            {isCalendarCollapsed ? "展开" : "收起"}
+                          </Button>
+                        </div>
+                        <div className="diary-calendar">
+                          <Calendar
+                            fullscreen={false}
+                            value={calendarValue}
+                            onSelect={handleCalendarSelect}
+                            onPanelChange={handleCalendarPanelChange}
+                            locale={calendarLocale}
+                            fullCellRender={calendarCellRender}
+                            headerRender={calendarHeaderRender}
+                          />
+                        </div>
+                      </div>
+                      <div className="diary-list-panel">
+                        {isDiaryLoading && diaries.length === 0 ? (
+                          <div className="panel-state panel-state--loading">
+                            <Spin size="small" />
+                            <Text type="secondary">加载中...</Text>
+                          </div>
+                        ) : (
+                          <List
+                            className="diary-list"
+                            dataSource={filteredDiaries}
+                            loading={isDiaryLoading}
+                            locale={{
+                              emptyText: (
+                                <div className="panel-state panel-state--empty">
+                                  <Empty
+                                    description={
+                                      diarySearchValue ? "未找到匹配日记" : "暂无日记"
+                                    }
+                                  />
+                                </div>
+                              )
+                            }}
+                            rowKey={(diary) => diary.id}
+                            renderItem={(diary) => {
+                              const isActive = diary.id === activeDiary?.id;
+                              const moodLabel = diary.mood
+                                ? MOOD_LABELS[diary.mood]
+                                : "未记录";
+                              const stressLabel =
+                                typeof diary.stressLevel === "number"
+                                  ? `${diary.stressLevel}`
+                                  : "未记录";
+                              const preview = stripHtmlText(diary.content ?? "");
+
+                              return (
+                                <List.Item
+                                  className={isActive ? "diary-item active" : "diary-item"}
+                                  onClick={() => void selectDiary(diary.id)}
+                                >
+                                  <div className="diary-item-content">
+                                    <div className="diary-item-header">
+                                      <Text className="diary-item-date">
+                                        {formatDiaryDate(diary.date)}
+                                      </Text>
+                                      <Text type="secondary" className="diary-item-words">
+                                        {diary.wordCount} 字
+                                      </Text>
+                                    </div>
+                                    <Text className="diary-item-title">
+                                      {diary.title?.trim() || "未命名"}
+                                    </Text>
+                                    <div className="diary-item-meta">
+                                      <span
+                                        className={`diary-pill mood-${diary.mood ?? "unknown"}`}
+                                      >
+                                        <span className="diary-pill-label">心情</span>
+                                        <span className="diary-pill-value">
+                                          {moodLabel}
+                                        </span>
+                                      </span>
+                                      <span className="diary-pill diary-pill-neutral">
+                                        <span className="diary-pill-label">压力</span>
+                                        <span className="diary-pill-value">
+                                          {stressLabel}
+                                        </span>
+                                      </span>
+                                    </div>
+                                    {preview ? (
+                                      <Text type="secondary" className="diary-item-preview">
+                                        {preview}
+                                      </Text>
+                                    ) : null}
+                                  </div>
+                                </List.Item>
+                              );
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className="diary-list-footer">
+                        <div className="diary-list-footer-icon">📝</div>
+                        <Text type="secondary" className="diary-list-footer-text">
+                          记录每一天的心情与故事
+                        </Text>
+                      </div>
                     </div>
                   </Sider>
                   <Content className="editor-panel">
-                    {diaryError ? (
-                      <Alert
-                        type="error"
-                        message={diaryError}
-                        showIcon
-                        closable
-                        onClose={clearDiaryError}
-                        className="app-alert"
-                      />
-                    ) : null}
                     <div className="editor-actions">
                       <Space>
                         <Button
                           onClick={handleSaveDiary}
                           loading={isDiarySaving}
-                          disabled={!activeDiary}
+                          disabled={!activeDiary && !draftDate}
                         >
                           保存
                         </Button>
@@ -1115,13 +1418,29 @@ export default function App() {
                           danger
                           onClick={handleDeleteDiary}
                           loading={isDiarySaving}
-                          disabled={!activeDiary}
+                          disabled={!activeDiary && !draftDate}
                         >
                           删除
                         </Button>
                       </Space>
                     </div>
-                    {activeDiary ? (
+                    {diaryError && !activeDiary ? (
+                      <div className="panel-state panel-state--error">
+                        <Alert
+                          type="error"
+                          message={diaryError}
+                          showIcon
+                          closable
+                          onClose={clearDiaryError}
+                          className="panel-state-alert"
+                        />
+                      </div>
+                    ) : isDiaryLoading && !activeDiary && !draftDate ? (
+                      <div className="panel-state panel-state--loading">
+                        <Spin size="small" />
+                        <Text type="secondary">加载中...</Text>
+                      </div>
+                    ) : activeDiary || draftDate ? (
                       <>
                         <div className="editor-toolbar">
                           <Input
@@ -1131,7 +1450,8 @@ export default function App() {
                             onChange={(event) => setTitle(event.target.value)}
                           />
                           <Text type="secondary" className="editor-meta">
-                            {activeDiary.date} · {activeDiary.wordCount} 字
+                            {editorDateLabel} · {editorWordCount} 字
+                            {isDrafting ? " · 未保存" : ""}
                           </Text>
                         </div>
                         <div className="editor-body" onClick={focusEditor}>
@@ -1145,7 +1465,7 @@ export default function App() {
                         </div>
                       </>
                     ) : (
-                      <div className="editor-empty">
+                      <div className="panel-state panel-state--empty">
                         <Empty description="请选择或新建日记" />
                       </div>
                     )}
@@ -1519,9 +1839,45 @@ export default function App() {
                           刷新
                         </Button>
                       </div>
+                      <div className="task-create">
+                        <div className="task-create-label">
+                          <Text strong>新增任务</Text>
+                          <Text type="secondary">快速添加</Text>
+                        </div>
+                        <Input
+                          placeholder="任务标题"
+                          value={newTaskTitle}
+                          onChange={(event) => setNewTaskTitle(event.target.value)}
+                          onPressEnter={() => void handleCreateTask()}
+                          className="task-create-title"
+                        />
+                        <Select
+                          value={newTaskPriority}
+                          options={TASK_PRIORITY_OPTIONS}
+                          onChange={(value) => setNewTaskPriority(value as TaskPriority)}
+                          className="task-create-priority"
+                        />
+                        <Input
+                          type="date"
+                          value={newTaskDeadline}
+                          onChange={(event) => setNewTaskDeadline(event.target.value)}
+                          className="task-create-deadline"
+                        />
+                        <Button
+                          type="primary"
+                          onClick={() => void handleCreateTask()}
+                          disabled={!newTaskTitle.trim()}
+                          loading={isTaskSaving}
+                        >
+                          新增
+                        </Button>
+                      </div>
                       <div className="task-sections">
                         <div className="task-section">
-                          <Text strong>待办</Text>
+                          <div className="task-section-header">
+                            <Text strong>待办</Text>
+                            <Text type="secondary">{pendingTasks.length} 项</Text>
+                          </div>
                           <List
                             className="task-list"
                             dataSource={pendingTasks}
@@ -1540,7 +1896,10 @@ export default function App() {
                           />
                         </div>
                         <div className="task-section">
-                          <Text strong>已完成</Text>
+                          <div className="task-section-header">
+                            <Text strong>已完成</Text>
+                            <Text type="secondary">{completedTasks.length} 项</Text>
+                          </div>
                           <List
                             className="task-list"
                             dataSource={completedTasks}

@@ -64,11 +64,14 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   transition: background-color 0.3s ease, color 0.3s ease;
+  overflow: hidden;
 }
 
 .app-shell {
-  min-height: 100%;
+  height: 100vh;
   background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
   transition: background-color 0.3s ease;
 }
 
@@ -136,6 +139,79 @@ body {
 
 .app-content {
   padding: 16px 24px 24px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ant-tabs-content-holder {
+  flex: 1;
+  overflow: hidden;
+}
+
+.ant-tabs-content {
+  height: 100%;
+  display: flex;
+}
+
+.ant-tabs-tabpane {
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.ai-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 1px 2px var(--shadow-sm);
+}
+
+.ai-notice::before {
+  content: "";
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--accent-secondary);
+}
+
+.ai-notice-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-notice-title {
+  font-size: 13px;
+}
+
+.ai-notice-desc {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-notice-actions {
+  flex-shrink: 0;
+}
+
+.ai-notice.is-collapsed {
+  padding: 6px 12px;
 }
 
 .app-alert {
@@ -148,7 +224,9 @@ body {
 
 .diary-layout {
   background: transparent;
-  height: calc(100vh - 140px);
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border-primary);
@@ -158,6 +236,11 @@ body {
 .diary-sider {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -165,12 +248,240 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--border-secondary);
 }
 
+.diary-sider-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diary-sider-count {
+  font-size: 12px;
+}
+
+.diary-sider-search {
+  padding: 12px 16px 8px;
+}
+
+.diary-sider-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diary-list-panel {
+  max-height: calc(100vh - 480px);
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+.diary-list-footer {
+  flex: 1;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.diary-list-footer-icon {
+  font-size: 32px;
+  opacity: 0.6;
+}
+
+.diary-list-footer-text {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diary-list {
+  padding: 0;
+}
+
+.diary-list .ant-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diary-list .ant-list-item {
+  border-bottom: none;
+  padding: 0;
+}
+
+.diary-item {
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.diary-item:hover {
+  background: var(--bg-hover);
+}
+
+.diary-item.active {
+  background: var(--bg-selected);
+  border-color: #c7d2fe;
+}
+
+.diary-item-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diary-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diary-item-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.diary-item-words {
+  font-size: 12px;
+}
+
+.diary-item-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.diary-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.diary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.diary-pill-label {
+  color: var(--text-tertiary);
+}
+
+.diary-pill-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.diary-pill-neutral {
+  background: var(--bg-tertiary);
+}
+
+.diary-pill.mood-happy {
+  background: #ecfdf5;
+  border-color: #d1fae5;
+  color: #047857;
+}
+
+.diary-pill.mood-sad {
+  background: #eff6ff;
+  border-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.diary-pill.mood-anxious {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.diary-pill.mood-angry {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.diary-pill.mood-calm {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.diary-pill.mood-tired {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.diary-pill.mood-excited {
+  background: #fdf4ff;
+  border-color: #f5d0fe;
+  color: #a21caf;
+}
+
+.diary-pill.mood-unknown {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  color: var(--text-secondary);
+}
+
+.diary-item-preview {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.diary-calendar-block {
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.diary-calendar-header {
+  padding: 10px 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .diary-calendar {
-  padding: 12px;
+  padding: 8px 12px 12px;
+}
+
+.diary-calendar-block.is-collapsed .diary-calendar {
+  display: none;
+}
+
+.diary-calendar-block.is-collapsed {
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .diary-calendar .ant-picker-calendar {
@@ -188,20 +499,20 @@ body {
 }
 
 .calendar-cell {
-  height: 64px;
+  height: 52px;
   border-radius: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--text-primary);
   transition: background 0.2s ease, color 0.2s ease;
 }
 
 .calendar-date {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .calendar-dot {
@@ -235,32 +546,20 @@ body {
   background: var(--bg-hover);
 }
 
-.diary-list {
-  padding: 8px 8px 16px;
-}
-
-.diary-item {
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 8px 12px;
-}
-
-.diary-item.active {
-  background: var(--bg-selected);
-}
-
 .editor-panel {
   background: var(--bg-secondary);
-  padding: 16px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
   transition: background-color 0.3s ease;
 }
 
 .editor-actions {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 12px;
 }
 
 .editor-toolbar {
@@ -268,11 +567,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
 }
 
 .editor-title {
-  max-width: 420px;
+  flex: 1;
+  min-width: 240px;
+  max-width: none;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .editor-meta {
@@ -280,12 +582,13 @@ body {
 }
 
 .editor-quill .ql-toolbar {
-  border-radius: 8px 8px 0 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--bg-tertiary);
 }
 
 .editor-quill .ql-container {
-  min-height: 420px;
-  border-radius: 0 0 8px 8px;
+  min-height: 460px;
+  border-radius: 0 0 12px 12px;
   flex: 1;
   height: 100%;
 }
@@ -295,24 +598,96 @@ body {
   display: flex;
   flex-direction: column;
   cursor: text;
+  min-height: 0;
+  overflow: auto;
 }
 
 .editor-quill {
   display: flex;
   flex-direction: column;
   flex: 1;
+  width: 100%;
+  margin: 0;
+  min-width: 0;
 }
 
-.editor-empty {
-  padding: 48px 0;
+.editor-body:focus-within .editor-quill .ql-container {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.editor-body:focus-within .editor-quill .ql-toolbar {
+  border-color: var(--accent-primary);
+}
+
+.editor-quill .ql-editor {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  padding: 24px 28px;
+}
+
+.editor-quill .ql-editor p {
+  margin: 0 0 0.85em;
+}
+
+.editor-quill .ql-editor h1 {
+  font-size: 24px;
+  line-height: 1.3;
+  margin: 0 0 0.6em;
+}
+
+.editor-quill .ql-editor h2 {
+  font-size: 20px;
+  line-height: 1.35;
+  margin: 0 0 0.6em;
+}
+
+.editor-quill .ql-editor h3 {
+  font-size: 18px;
+  line-height: 1.4;
+  margin: 0 0 0.6em;
+}
+
+.panel-state {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px dashed var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.panel-state--loading {
+  min-height: 120px;
+}
+
+.panel-state--empty {
+  min-height: 160px;
+}
+
+.panel-state--error {
+  border-style: solid;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(254, 242, 242, 0.6);
+}
+
+.panel-state-alert {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .chat-layout {
   background: transparent;
-  height: calc(100vh - 180px);
+  height: 100%;
+  min-height: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border-primary);
@@ -352,6 +727,8 @@ body {
   flex-direction: column;
   background: var(--bg-secondary);
   padding: 16px;
+  flex: 1;
+  min-height: 0;
   transition: background-color 0.3s ease;
 }
 
@@ -460,10 +837,12 @@ body {
   border: 1px solid var(--border-primary);
   border-radius: 12px;
   padding: 16px;
-  min-height: calc(100vh - 180px);
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: auto;
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -471,6 +850,37 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.task-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-tertiary);
+  background: var(--bg-tertiary);
+}
+
+.task-create-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 86px;
+}
+
+.task-create-title {
+  flex: 1 1 220px;
+}
+
+.task-create-priority {
+  width: 120px;
+}
+
+.task-create-deadline {
+  width: 150px;
 }
 
 .task-sections {
@@ -487,29 +897,41 @@ body {
   border: 1px solid var(--border-tertiary);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.task-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .task-list {
   background: transparent;
 }
 
+.task-list .ant-list-item {
+  border-bottom: none;
+}
+
 .task-item {
   background: var(--bg-secondary);
   border-radius: 12px;
-  padding: 24px 24px 24px 32px;
-  border: 0px solid var(--border-secondary);
+  padding: 14px 16px;
+  border: 1px solid var(--border-secondary);
   margin-bottom: 10px;
-  transition: background-color 0.3s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .task-list .task-item.ant-list-item {
-  padding: 16px 24px 16px 32px;
+  padding: 14px 16px;
 }
 
 .task-item.completed {
-  opacity: 0.8;
+  opacity: 0.6;
+  background: var(--bg-tertiary);
 }
 
 .task-main {
@@ -519,18 +941,66 @@ body {
   gap: 8px;
 }
 
-.task-title-row {
+.task-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-title {
+  font-size: 15px;
+}
+
+.task-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.task-item.completed .task-title {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+.task-item.completed .task-desc {
+  color: var(--text-tertiary);
+}
+
+.task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-meta-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.task-meta-label {
+  color: var(--text-tertiary);
+}
+
+.task-meta-value {
+  color: var(--text-secondary);
 }
 
 .task-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
   align-items: center;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-secondary);
 }
 
 .task-control-group {
@@ -551,6 +1021,7 @@ body {
 
 .task-item .ant-list-item-action {
   margin-inline-start: 16px;
+  margin-top: 2px;
 }
 
 .task-item .ant-list-item-action>li {
@@ -564,7 +1035,8 @@ body {
 
 .report-layout {
   background: transparent;
-  height: calc(100vh - 180px);
+  height: 100%;
+  min-height: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border-primary);
@@ -605,6 +1077,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   transition: background-color 0.3s ease;
 }
 
@@ -682,10 +1157,12 @@ body {
   border-radius: 12px;
   border: 1px solid var(--border-primary);
   padding: 20px;
-  min-height: calc(100vh - 180px);
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow: auto;
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -704,7 +1181,23 @@ body {
   }
 
   .diary-layout {
-    height: auto;
+    height: 100%;
+  }
+
+  .diary-sider {
+    width: 100% !important;
+    border-right: none;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .diary-list-panel {
+    max-height: 360px;
+  }
+
+  .diary-calendar-block {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
   }
 
   .editor-toolbar {
@@ -717,7 +1210,7 @@ body {
   }
 
   .chat-layout {
-    height: auto;
+    height: 100%;
   }
 
   .chat-input {
@@ -725,19 +1218,38 @@ body {
   }
 
   .task-layout {
-    min-height: auto;
+    height: 100%;
   }
 
   .task-sections {
     grid-template-columns: 1fr;
   }
 
+  .task-create {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .task-create-label {
+    min-width: 0;
+  }
+
+  .task-create-priority,
+  .task-create-deadline {
+    width: 100%;
+  }
+
   .task-controls {
     grid-template-columns: 1fr;
   }
 
+  .task-control-group .ant-typography {
+    min-width: auto;
+    text-align: left;
+  }
+
   .report-layout {
-    height: auto;
+    height: 100%;
   }
 
   .report-stats {
@@ -750,7 +1262,7 @@ body {
   }
 
   .settings-layout {
-    min-height: auto;
+    height: 100%;
   }
 }
 
@@ -1023,6 +1535,15 @@ body[data-theme="dark"] .ant-modal-confirm-body .ant-modal-confirm-content {
 }
 
 /* 提示消息 */
+body[data-theme="dark"] .ai-notice {
+  border-color: var(--border-tertiary);
+  background: var(--bg-secondary);
+}
+
+body[data-theme="dark"] .ai-notice::before {
+  background: var(--accent-primary);
+}
+
 body[data-theme="dark"] .ant-message-notice-content {
   background-color: var(--bg-secondary);
   box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.4);
@@ -1079,6 +1600,28 @@ body[data-theme="dark"] .ql-toolbar.ql-snow button:hover .ql-stroke {
 
 body[data-theme="dark"] .ql-toolbar.ql-snow button:hover .ql-fill {
   fill: var(--accent-primary);
+}
+
+body[data-theme="dark"] .diary-item.active {
+  border-color: rgba(96, 165, 250, 0.6);
+}
+
+body[data-theme="dark"] .diary-pill.mood-happy,
+body[data-theme="dark"] .diary-pill.mood-sad,
+body[data-theme="dark"] .diary-pill.mood-anxious,
+body[data-theme="dark"] .diary-pill.mood-angry,
+body[data-theme="dark"] .diary-pill.mood-calm,
+body[data-theme="dark"] .diary-pill.mood-tired,
+body[data-theme="dark"] .diary-pill.mood-excited,
+body[data-theme="dark"] .diary-pill.mood-unknown {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: var(--text-secondary);
+}
+
+body[data-theme="dark"] .panel-state--error {
+  background: rgba(127, 29, 29, 0.35);
+  border-color: rgba(248, 113, 113, 0.4);
 }
 
 /* ===== 引导向导样式 ===== */

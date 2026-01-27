@@ -39,7 +39,6 @@ Thumbs.db
 .agent/
 .shared/
 .vscode/
-project_md/
 AGENTS.md
 design-system/
 .claude/

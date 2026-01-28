@@ -48,14 +48,11 @@ declare global {
         ) => Promise<Conversation | null>;
       };
       ai: {
-        chat: (conversationId: string) => Promise<{ content: string }>;
+        chat: (conversationId: string, stylePrompt?: string) => Promise<{ content: string }>;
         onChatChunk: (callback: (data: { conversationId: string; chunk: string }) => void) => void;
         onChatDone: (callback: (data: { conversationId: string }) => void) => void;
         offChatListeners: () => void;
         generateDiary: (conversationId: string) => Promise<Diary>;
-        extractInfo: (
-          conversationId: string
-        ) => Promise<{ extractedInfo: ExtractedInfo; tasks: Task[] }>;
         detectTodos: (conversationId: string) => Promise<ExtractedInfo>;
       };
       task: {

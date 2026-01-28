@@ -5,8 +5,6 @@ import path from "path";
 import { app } from "electron";
 
 type DiaryMode = "traditional" | "ai";
-const MOODS = ["happy", "sad", "anxious", "angry", "calm", "tired", "excited"] as const;
-type Mood = (typeof MOODS)[number];
 
 type AppSettings = {
   appMode: DiaryMode;
@@ -25,7 +23,6 @@ type DiaryCreateInput = {
   date?: string;
   title?: string;
   content: string;
-  mood?: string;
   stressLevel?: number;
   weather?: string;
   tags?: string[];
@@ -37,7 +34,6 @@ type DiaryCreateInput = {
 type DiaryUpdateInput = {
   title?: string;
   content?: string;
-  mood?: string;
   stressLevel?: number;
   weather?: string;
   tags?: string[];
@@ -59,7 +55,6 @@ type ExtractedTodo = {
 };
 
 type ExtractedInfo = {
-  mood?: string;
   events: string[];
   people: string[];
   locations: string[];
@@ -85,7 +80,6 @@ type DiaryRow = {
   content: string | null;
   raw_content: string | null;
   mode: DiaryMode;
-  mood: string | null;
   stress_level: number | null;
   weather: string | null;
   tags: string | null;
@@ -143,7 +137,6 @@ type WeeklyReportStats = {
   diaryCount: number;
   totalWords: number;
   averageStress: number;
-  moodDistribution: Record<Mood, number>;
   topTags: string[];
   taskStats: {
     total: number;
@@ -174,7 +167,6 @@ export type DiaryRecord = {
   content: string | null;
   rawContent: string | null;
   mode: DiaryMode;
-  mood: string | null;
   stressLevel: number | null;
   weather: string | null;
   tags: string[];
@@ -344,7 +336,6 @@ function mapDiaryRow(row: DiaryRow): DiaryRecord {
     content: row.content,
     rawContent: row.raw_content,
     mode: row.mode,
-    mood: row.mood,
     stressLevel: row.stress_level,
     weather: row.weather,
     tags: safeJsonParse<string[]>(row.tags, []),
@@ -402,16 +393,10 @@ function mapTaskRow(row: TaskRow): TaskRecord {
 }
 
 function buildEmptyWeeklyStats(): WeeklyReportStats {
-  const moodDistribution = MOODS.reduce((acc, mood) => {
-    acc[mood] = 0;
-    return acc;
-  }, {} as Record<Mood, number>);
-
   return {
     diaryCount: 0,
     totalWords: 0,
     averageStress: 0,
-    moodDistribution,
     topTags: [],
     taskStats: {
       total: 0,
@@ -556,14 +541,6 @@ function normalizeDueDate(value?: string | null) {
   return trimmed;
 }
 
-function buildTodoKey(
-  title: string,
-  dueDate: string | null,
-  priority: TaskPriority
-) {
-  return `${title.trim()}|${dueDate ?? ""}|${priority}`;
-}
-
 export function createConversation(): ConversationRecord {
   const now = new Date().toISOString();
   const date = now.slice(0, 10);
@@ -684,60 +661,6 @@ export function archiveConversation(id: string): boolean {
     )
     .run(new Date().toISOString(), id);
   return result.changes > 0;
-}
-
-export function createTasksFromExtractedInfo(
-  conversationId: string,
-  extractedInfo: ExtractedInfo
-): TaskRecord[] {
-  if (!extractedInfo.todos.length) {
-    return [];
-  }
-
-  const dismissed = new Set(extractedInfo.dismissedTodos ?? []);
-  const now = new Date().toISOString();
-  const insert = getDb().prepare(
-    `INSERT INTO tasks (
-      id, title, description, priority, status, deadline, completion_note,
-      completed_at, conversation_id, diary_id, created_at, updated_at, is_deleted
-    ) VALUES (
-      @id, @title, @description, @priority, @status, @deadline, NULL,
-      NULL, @conversation_id, NULL, @created_at, @updated_at, 0
-    )`
-  );
-
-  const tx = getDb().transaction((todos: ExtractedTodo[]) => {
-    for (const todo of todos) {
-      const title = todo.title.trim();
-      const dueDate = normalizeDueDate(todo.dueDate);
-      const priority = todo.priority ?? "medium";
-      const key = buildTodoKey(title, dueDate, priority);
-      if (dismissed.has(key)) {
-        continue;
-      }
-      const id = randomUUID();
-      insert.run({
-        id,
-        title,
-        description: todo.notes ?? null,
-        priority,
-        status: "not_started",
-        deadline: dueDate,
-        conversation_id: conversationId,
-        created_at: now,
-        updated_at: now
-      });
-    }
-  });
-  tx(extractedInfo.todos);
-
-  const rows = getDb()
-    .prepare(
-      "SELECT * FROM tasks WHERE conversation_id = ? AND is_deleted = 0 ORDER BY created_at DESC"
-    )
-    .all(conversationId) as TaskRow[];
-
-  return rows.map(mapTaskRow);
 }
 
 export function createTask(input: TaskCreateInput): TaskRecord {
@@ -876,11 +799,11 @@ export function createDiary(input: DiaryCreateInput): DiaryRecord {
   getDb()
     .prepare(
       `INSERT INTO diaries (
-        id, date, title, content, raw_content, mode, mood, stress_level, weather,
+        id, date, title, content, raw_content, mode, stress_level, weather,
         tags, word_count, conversation_id, is_generated, is_edited, created_at,
         updated_at, is_deleted
       ) VALUES (
-        @id, @date, @title, @content, @raw_content, @mode, @mood, @stress_level, @weather,
+        @id, @date, @title, @content, @raw_content, @mode, @stress_level, @weather,
         @tags, @word_count, @conversation_id, @is_generated, @is_edited, @created_at,
         @updated_at, 0
       )`
@@ -892,7 +815,6 @@ export function createDiary(input: DiaryCreateInput): DiaryRecord {
       content: input.content,
       raw_content: input.content,
       mode: input.mode,
-      mood: input.mood ?? null,
       stress_level: input.stressLevel ?? null,
       weather: input.weather ?? null,
       tags,
@@ -933,11 +855,6 @@ export function updateDiary(
     values.content = input.content;
     values.raw_content = input.content;
     values.word_count = input.content ? countWords(input.content) : 0;
-  }
-
-  if (input.mood !== undefined) {
-    fields.push("mood = @mood");
-    values.mood = input.mood ?? null;
   }
 
   if (input.stressLevel !== undefined) {
@@ -1011,25 +928,20 @@ export function getWeeklyReportStats(
 ): WeeklyReportStats {
   const diaryRows = getDb()
     .prepare(
-      "SELECT mood, stress_level, tags, word_count FROM diaries WHERE is_deleted = 0 AND date >= ? AND date <= ?"
+      "SELECT stress_level, tags, word_count FROM diaries WHERE is_deleted = 0 AND date >= ? AND date <= ?"
     )
     .all(weekStart, weekEnd) as Array<{
-    mood: string | null;
     stress_level: number | null;
     tags: string | null;
     word_count: number | null;
   }>;
 
-  const moodDistribution = buildEmptyWeeklyStats().moodDistribution;
   let stressSum = 0;
   let stressCount = 0;
   let totalWords = 0;
   const tagCounts = new Map<string, number>();
 
   for (const row of diaryRows) {
-    if (row.mood && MOODS.includes(row.mood as Mood)) {
-      moodDistribution[row.mood as Mood] += 1;
-    }
     if (typeof row.stress_level === "number") {
       stressSum += row.stress_level;
       stressCount += 1;
@@ -1079,7 +991,6 @@ export function getWeeklyReportStats(
     diaryCount: diaryRows.length,
     totalWords,
     averageStress: stressCount > 0 ? stressSum / stressCount : 0,
-    moodDistribution,
     topTags,
     taskStats: {
       total: totalTasks,

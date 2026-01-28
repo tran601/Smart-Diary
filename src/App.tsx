@@ -40,8 +40,7 @@ import type {
   WeeklyReport,
   AppSettingsPublic,
   DiaryMode,
-  ExtractedInfo,
-  Mood
+  ExtractedInfo
 } from "./types/database";
 import "react-quill/dist/quill.snow.css";
 import "./styles/app.css";
@@ -73,7 +72,6 @@ const ONBOARDING_STEPS = [
     image: onboardingStep2,
     descriptions: [
       "与 AI 进行对话，AI 可以在对话过程中实时判断待办事项",
-      "点击「提取信息」按钮，AI 会根据聊天记录生成待办事项",
       "点击「生成日记」按钮，AI 会根据聊天记录自动生成当日日记",
       "在底部输入框中输入消息，点击「发送」开始对话"
     ]
@@ -128,20 +126,39 @@ const STATUS_COLORS: Partial<Record<TaskStatus, string>> = {
 };
 
 const AI_NOTICE_STORAGE_KEY = "smartdiary_ai_notice_collapsed";
+const CHAT_STYLE_STORAGE_KEY = "smartdiary_chat_style";
 
-const MOOD_LABELS: Record<Mood, string> = {
-  happy: "开心",
-  sad: "难过",
-  anxious: "焦虑",
-  angry: "生气",
-  calm: "平静",
-  tired: "疲惫",
-  excited: "兴奋"
-};
 
 const THEME_OPTIONS: { label: string; value: AppSettingsPublic["theme"] }[] = [
   { label: "浅色", value: "light" },
   { label: "深色", value: "dark" }
+];
+
+const CHAT_STYLE_OPTIONS = [
+  {
+    label: "简洁风格",
+    value: "concise",
+    prompt:
+      "你是简洁高效的日记助理。回答尽量精简，用短句，最多 2-3 句。以总结与确认为主，尽量不提问。只有在信息明显缺失时才提 1 个问题。"
+  },
+  {
+    label: "温柔风格",
+    value: "gentle",
+    prompt:
+      "你是温柔耐心的日记陪伴者。语气柔和，表达理解与共情，更多倾听与复述，不急于追问。除非对话停滞，否则尽量不提问。"
+  },
+  {
+    label: "暖心风格",
+    value: "warm",
+    prompt:
+      "你是暖心的关怀者。语言温暖积极，强调支持与安慰，避免说教。先回应情绪与感受，少提问，多给予陪伴式回应。"
+  },
+  {
+    label: "成长教练",
+    value: "coach",
+    prompt:
+      "你是理性清晰的成长教练。帮助用户梳理事实与情绪，给出 1-2 条可执行的小建议。优先给出反馈与建议，尽量不追问，只有需要澄清时才提 1 个问题。"
+  }
 ];
 
 function stripHtmlText(input: string) {
@@ -170,6 +187,16 @@ function splitLines(input: string) {
     .filter(Boolean);
 }
 
+function normalizeExtractedInfo(info?: ExtractedInfo): ExtractedInfo {
+  return {
+    events: info?.events ?? [],
+    people: info?.people ?? [],
+    locations: info?.locations ?? [],
+    todos: info?.todos ?? [],
+    dismissedTodos: info?.dismissedTodos ?? []
+  };
+}
+
 const EMPTY_EDITOR_CONTENT = "<p><br></p>";
 
 function formatDiaryDate(date: string) {
@@ -177,6 +204,38 @@ function formatDiaryDate(date: string) {
 }
 
 type TodoSuggestion = ExtractedInfo["todos"][number];
+
+type TodoEditDraft = {
+  title: string;
+  priority: TaskPriority;
+  dueDate: string;
+  notes: string;
+};
+
+type TodoCardItem = {
+  key: string;
+  conversationId: string;
+  conversationDate: string;
+  conversationPreview: string;
+  todo: TodoSuggestion;
+  index: number;
+};
+
+function normalizeTodoSuggestion(todo: TodoSuggestion): TodoSuggestion | null {
+  const title = todo.title?.trim() ?? "";
+  if (!title) {
+    return null;
+  }
+  const dueDate = normalizeTodoDueDate(todo.dueDate);
+  const priority = normalizeTodoPriority(todo.priority);
+  const notes = todo.notes?.trim() ?? "";
+  return {
+    title,
+    dueDate: dueDate || undefined,
+    priority,
+    notes: notes || undefined
+  };
+}
 
 function normalizeTodoDueDate(value?: string | null) {
   if (!value) {
@@ -200,6 +259,15 @@ function buildTodoKey(title: string, dueDate: string, priority: TaskPriority) {
   return `${title.trim()}|${dueDate}|${priority}`;
 }
 
+function buildTodoTitleKey(title: string) {
+  return title.trim().toLowerCase();
+}
+
+function extractTitleKeyFromTodoKey(key: string) {
+  const title = key.split("|")[0] ?? key;
+  return buildTodoTitleKey(title);
+}
+
 function buildTodoKeyFromTodo(todo: TodoSuggestion) {
   const title = todo.title?.trim() ?? "";
   const dueDate = normalizeTodoDueDate(todo.dueDate);
@@ -212,6 +280,14 @@ function buildTodoKeyFromTask(task: Task) {
   const dueDate = normalizeTodoDueDate(task.deadline ?? "");
   const priority = normalizeTodoPriority(task.priority);
   return buildTodoKey(title, dueDate, priority);
+}
+
+function buildTodoTitleKeyFromTodo(todo: TodoSuggestion) {
+  return buildTodoTitleKey(todo.title ?? "");
+}
+
+function buildTodoTitleKeyFromTask(task: Task) {
+  return buildTodoTitleKey(task.title ?? "");
 }
 
 type TaskRowProps = {
@@ -375,7 +451,6 @@ export default function App() {
     isLoading: isConversationLoading,
     isSending,
     isGenerating,
-    isExtracting,
     error: conversationError,
     loadConversations,
     createConversation,
@@ -383,9 +458,8 @@ export default function App() {
     deleteConversation,
     sendMessage,
     generateDiaryDraft,
-    extractInfo,
     detectTodos,
-    dismissTodoSuggestion,
+    updateConversationExtractedInfo,
     setMessageInput,
     clearError: clearConversationError
   } = useConversationStore();
@@ -451,12 +525,13 @@ export default function App() {
     improvements: string;
     nextWeekPlan: string;
   } | null>(null);
-  const [todoQueue, setTodoQueue] = useState<TodoSuggestion[]>([]);
-  const [todoDraft, setTodoDraft] = useState<{
-    title: string;
-    priority: TaskPriority;
-    dueDate: string;
+  const [chatStyle, setChatStyle] = useState(CHAT_STYLE_OPTIONS[0]?.value ?? "concise");
+  const [todoEditTarget, setTodoEditTarget] = useState<{
+    conversationId: string;
+    index: number;
   } | null>(null);
+  const [todoEditDraft, setTodoEditDraft] = useState<TodoEditDraft | null>(null);
+  const [todoActionKey, setTodoActionKey] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>("medium");
   const [newTaskDeadline, setNewTaskDeadline] = useState("");
@@ -469,10 +544,6 @@ export default function App() {
     () => tasks.filter((task) => task.status === "completed"),
     [tasks]
   );
-  const dismissedTodoKeys = useMemo(
-    () => new Set(activeConversation?.extractedInfo?.dismissedTodos ?? []),
-    [activeConversation?.extractedInfo?.dismissedTodos]
-  );
   const existingTaskKeys = useMemo(() => {
     const keys = new Set<string>();
     tasks.forEach((task) => {
@@ -480,7 +551,53 @@ export default function App() {
     });
     return keys;
   }, [tasks]);
-  const pendingTodo = todoQueue[0] ?? null;
+  const existingTaskTitleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    tasks.forEach((task) => {
+      keys.add(buildTodoTitleKeyFromTask(task));
+    });
+    return keys;
+  }, [tasks]);
+  const chatStylePrompt = useMemo(() => {
+    const match = CHAT_STYLE_OPTIONS.find((option) => option.value === chatStyle);
+    return match?.prompt ?? "";
+  }, [chatStyle]);
+  const todoCards = useMemo(() => {
+    const items: TodoCardItem[] = [];
+    conversations.forEach((conversation) => {
+      const info = normalizeExtractedInfo(conversation.extractedInfo);
+      const dismissed = new Set(info.dismissedTodos ?? []);
+      const dismissedTitleKeys = new Set(
+        (info.dismissedTodos ?? []).map((key) => extractTitleKeyFromTodoKey(key))
+      );
+      info.todos.forEach((todo, index) => {
+        if (!todo.title?.trim()) {
+          return;
+        }
+        const key = buildTodoKeyFromTodo(todo);
+        const titleKey = buildTodoTitleKeyFromTodo(todo);
+        if (
+          dismissed.has(key) ||
+          dismissedTitleKeys.has(titleKey) ||
+          existingTaskKeys.has(key) ||
+          existingTaskTitleKeys.has(titleKey)
+        ) {
+          return;
+        }
+        const lastMessage =
+          conversation.messages[conversation.messages.length - 1]?.content ?? "";
+        items.push({
+          key: `${conversation.id}:${index}`,
+          conversationId: conversation.id,
+          conversationDate: conversation.date,
+          conversationPreview: lastMessage.slice(0, 32),
+          todo,
+          index
+        });
+      });
+    });
+    return items;
+  }, [conversations, existingTaskKeys, existingTaskTitleKeys]);
   const diaryByDate = useMemo(() => {
     const map = new Map<string, (typeof diaries)[number]>();
     diaries.forEach((diary) => {
@@ -604,6 +721,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(CHAT_STYLE_STORAGE_KEY);
+      if (stored && CHAT_STYLE_OPTIONS.some((option) => option.value === stored)) {
+        setChatStyle(stored);
+      }
+    } catch {
+      setChatStyle(CHAT_STYLE_OPTIONS[0]?.value ?? "concise");
+    }
+  }, []);
+
+  useEffect(() => {
     if (appMode !== "ai" && activeTab !== "diary" && activeTab !== "settings") {
       setActiveTab("diary");
     }
@@ -637,66 +765,12 @@ export default function App() {
     setIsEditingReport(false);
   }, [activeReport?.reportContent]);
 
-  useEffect(() => {
-    setTodoQueue([]);
-  }, [activeConversation?.id]);
-
   // 当消息更新或切换到对话标签时自动滚动到底部
   useEffect(() => {
     if (chatMessagesRef.current && activeConversation?.messages.length) {
       chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
     }
   }, [activeConversation?.messages, activeTab]);
-
-  useEffect(() => {
-    if (!pendingTodo) {
-      setTodoDraft(null);
-      return;
-    }
-    setTodoDraft({
-      title: pendingTodo.title ?? "",
-      priority: normalizeTodoPriority(pendingTodo.priority),
-      dueDate: normalizeTodoDueDate(pendingTodo.dueDate)
-    });
-  }, [pendingTodo]);
-
-  const enqueueTodoSuggestions = useCallback((todos: TodoSuggestion[]) => {
-    if (!todos.length) {
-      return;
-    }
-    setTodoQueue((prev) => {
-      const seen = new Set(prev.map(buildTodoKeyFromTodo));
-      const next = [...prev];
-      todos.forEach((todo) => {
-        const title = todo.title?.trim() ?? "";
-        if (!title) {
-          return;
-        }
-        const key = buildTodoKeyFromTodo(todo);
-        if (!seen.has(key)) {
-          seen.add(key);
-          next.push(todo);
-        }
-      });
-      return next;
-    });
-  }, []);
-
-  const filterTodoSuggestions = useCallback(
-    (todos: TodoSuggestion[]) =>
-      todos.filter((todo) => {
-        const title = todo.title?.trim() ?? "";
-        if (!title) {
-          return false;
-        }
-        const key = buildTodoKeyFromTodo(todo);
-        if (dismissedTodoKeys.has(key) || existingTaskKeys.has(key)) {
-          return false;
-        }
-        return true;
-      }),
-    [dismissedTodoKeys, existingTaskKeys]
-  );
 
   const isAiSettingsDisabled = appMode !== "ai";
   const aiModelLabel = settings?.aiModel?.trim() || "未设置";
@@ -790,14 +864,18 @@ export default function App() {
     }
   };
 
-  const handleSaveAppearance = async () => {
+  const handleThemeChange = async (value: AppSettingsPublic["theme"]) => {
+    setThemeInput(value);
     setIsSavingAppearance(true);
     try {
-      const nextSettings = await settingsService.set({ theme: themeInput });
+      const nextSettings = await settingsService.set({ theme: value });
       applySettings(nextSettings);
-      message.success("已保存外观设置");
+      message.success("已切换主题");
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
+      if (settings) {
+        setThemeInput(settings.theme);
+      }
     } finally {
       setIsSavingAppearance(false);
     }
@@ -838,6 +916,287 @@ export default function App() {
       // ignore storage errors
     }
   };
+
+  const handleChatStyleChange = (value: string) => {
+    setChatStyle(value);
+    try {
+      window.localStorage.setItem(CHAT_STYLE_STORAGE_KEY, value);
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const handleStartTodoEdit = useCallback((item: TodoCardItem) => {
+    setTodoEditTarget({ conversationId: item.conversationId, index: item.index });
+    setTodoEditDraft({
+      title: item.todo.title ?? "",
+      priority: normalizeTodoPriority(item.todo.priority),
+      dueDate: normalizeTodoDueDate(item.todo.dueDate),
+      notes: item.todo.notes ?? ""
+    });
+  }, []);
+
+  const handleCancelTodoEdit = useCallback(() => {
+    setTodoEditTarget(null);
+    setTodoEditDraft(null);
+  }, []);
+
+  const handleSaveTodoEdit = useCallback(async () => {
+    if (!todoEditTarget || !todoEditDraft) {
+      return;
+    }
+    const conversation = conversations.find(
+      (item) => item.id === todoEditTarget.conversationId
+    );
+    if (!conversation) {
+      message.error("对话不存在");
+      return;
+    }
+    const currentInfo = normalizeExtractedInfo(conversation.extractedInfo);
+    const currentTodo = currentInfo.todos[todoEditTarget.index];
+    if (!currentTodo) {
+      message.info("待办已更新");
+      handleCancelTodoEdit();
+      return;
+    }
+    const title = todoEditDraft.title.trim();
+    if (!title) {
+      message.error("事项不能为空");
+      return;
+    }
+    const updatedTodo: TodoSuggestion = {
+      title,
+      priority: normalizeTodoPriority(todoEditDraft.priority),
+      dueDate: normalizeTodoDueDate(todoEditDraft.dueDate) || undefined,
+      notes: todoEditDraft.notes.trim() || undefined
+    };
+    const nextTodos = [...currentInfo.todos];
+    nextTodos[todoEditTarget.index] = updatedTodo;
+    setTodoActionKey(`${conversation.id}:${todoEditTarget.index}:save`);
+    const updated = await updateConversationExtractedInfo(conversation.id, {
+      ...currentInfo,
+      todos: nextTodos
+    });
+    setTodoActionKey(null);
+    if (updated) {
+      message.success("已更新待办");
+      handleCancelTodoEdit();
+    }
+  }, [
+    conversations,
+    handleCancelTodoEdit,
+    todoEditDraft,
+    todoEditTarget,
+    updateConversationExtractedInfo
+  ]);
+
+  const handleDeleteTodo = useCallback(
+    async (item: TodoCardItem) => {
+      const conversation = conversations.find(
+        (entry) => entry.id === item.conversationId
+      );
+      if (!conversation) {
+        message.error("对话不存在");
+        return;
+      }
+      const currentInfo = normalizeExtractedInfo(conversation.extractedInfo);
+      const currentTodo = currentInfo.todos[item.index];
+      if (!currentTodo) {
+        return;
+      }
+      const nextTodos = currentInfo.todos.filter((_, idx) => idx !== item.index);
+      const nextDismissed = new Set(currentInfo.dismissedTodos ?? []);
+      const todoKey = buildTodoKeyFromTodo(currentTodo);
+      const titleKey = buildTodoTitleKeyFromTodo(currentTodo);
+      if (todoKey.trim()) {
+        nextDismissed.add(todoKey);
+      }
+      if (titleKey.trim()) {
+        nextDismissed.add(titleKey);
+      }
+      setTodoActionKey(`${conversation.id}:${item.index}:delete`);
+      await updateConversationExtractedInfo(conversation.id, {
+        ...currentInfo,
+        todos: nextTodos,
+        dismissedTodos: Array.from(nextDismissed)
+      });
+      setTodoActionKey(null);
+      if (
+        todoEditTarget?.conversationId === item.conversationId &&
+        todoEditTarget.index >= item.index
+      ) {
+        handleCancelTodoEdit();
+      }
+      message.success("已删除待办");
+    },
+    [conversations, handleCancelTodoEdit, todoEditTarget, updateConversationExtractedInfo]
+  );
+
+  const handleAddTodo = useCallback(
+    async (item: TodoCardItem) => {
+      const conversation = conversations.find(
+        (entry) => entry.id === item.conversationId
+      );
+      if (!conversation) {
+        message.error("对话不存在");
+        return;
+      }
+      const currentInfo = normalizeExtractedInfo(conversation.extractedInfo);
+      const currentTodo = currentInfo.todos[item.index];
+      if (!currentTodo) {
+        message.info("待办已更新");
+        return;
+      }
+      const isEditing =
+        todoEditTarget?.conversationId === item.conversationId &&
+        todoEditTarget.index === item.index;
+      const draft = isEditing ? todoEditDraft : null;
+      const sourceTodo = draft
+        ? {
+            title: draft.title,
+            priority: draft.priority,
+            dueDate: draft.dueDate,
+            notes: draft.notes
+          }
+        : currentTodo;
+      const title = sourceTodo.title?.trim() ?? "";
+      if (!title) {
+        message.error("事项不能为空");
+        return;
+      }
+      const deadline = normalizeTodoDueDate(sourceTodo.dueDate);
+      const priority = normalizeTodoPriority(sourceTodo.priority);
+      setTodoActionKey(`${conversation.id}:${item.index}:add`);
+      const created = await createTask({
+        title,
+        description: sourceTodo.notes?.trim() || undefined,
+        priority,
+        deadline: deadline || undefined,
+        conversationId: conversation.id
+      });
+      if (created) {
+      const nextTodos = currentInfo.todos.filter((_, idx) => idx !== item.index);
+      const nextDismissed = new Set(currentInfo.dismissedTodos ?? []);
+      const dismissedKey = buildTodoKey(
+        title,
+        normalizeTodoDueDate(sourceTodo.dueDate),
+        normalizeTodoPriority(sourceTodo.priority)
+      );
+      const dismissedTitleKey = buildTodoTitleKey(title);
+      if (dismissedKey.trim()) {
+        nextDismissed.add(dismissedKey);
+      }
+      if (dismissedTitleKey.trim()) {
+        nextDismissed.add(dismissedTitleKey);
+      }
+        await updateConversationExtractedInfo(conversation.id, {
+          ...currentInfo,
+          todos: nextTodos,
+          dismissedTodos: Array.from(nextDismissed)
+        });
+        message.success("已加入待办");
+        if (
+          todoEditTarget?.conversationId === item.conversationId &&
+          todoEditTarget.index >= item.index
+        ) {
+          handleCancelTodoEdit();
+        }
+      } else {
+        message.error("保存待办失败");
+      }
+      setTodoActionKey(null);
+    },
+    [
+      conversations,
+      createTask,
+      handleCancelTodoEdit,
+      todoEditDraft,
+      todoEditTarget,
+      updateConversationExtractedInfo
+    ]
+  );
+
+  const mergeDetectedTodos = useCallback(
+    async (detected: ExtractedInfo | null) => {
+      if (!detected?.todos?.length) {
+        return;
+      }
+      const currentConversation = useConversationStore.getState().activeConversation;
+      if (!currentConversation) {
+        return;
+      }
+      const currentInfo = normalizeExtractedInfo(currentConversation.extractedInfo);
+      const dismissed = new Set([
+        ...(currentInfo.dismissedTodos ?? []),
+        ...(detected.dismissedTodos ?? [])
+      ]);
+      const dismissedTitleKeys = new Set(
+        Array.from(dismissed).map((key) => extractTitleKeyFromTodoKey(key))
+      );
+      const existingKeys = new Set<string>();
+      const existingTitleKeys = new Set<string>();
+      const nextTodos: TodoSuggestion[] = [];
+      currentInfo.todos.forEach((todo) => {
+        const normalized = normalizeTodoSuggestion(todo);
+        if (!normalized) {
+          return;
+        }
+        const key = buildTodoKeyFromTodo(normalized);
+        const titleKey = buildTodoTitleKeyFromTodo(normalized);
+        if (!key.trim()) {
+          return;
+        }
+        if (
+          dismissed.has(key) ||
+          dismissedTitleKeys.has(titleKey) ||
+          existingTaskKeys.has(key) ||
+          existingTaskTitleKeys.has(titleKey) ||
+          existingKeys.has(key) ||
+          existingTitleKeys.has(titleKey)
+        ) {
+          return;
+        }
+        existingKeys.add(key);
+        existingTitleKeys.add(titleKey);
+        nextTodos.push(normalized);
+      });
+      let added = 0;
+      detected.todos.forEach((todo) => {
+        const normalized = normalizeTodoSuggestion(todo);
+        if (!normalized) {
+          return;
+        }
+        const key = buildTodoKeyFromTodo(normalized);
+        const titleKey = buildTodoTitleKeyFromTodo(normalized);
+        if (!key.trim()) {
+          return;
+        }
+        if (
+          dismissed.has(key) ||
+          dismissedTitleKeys.has(titleKey) ||
+          existingTaskKeys.has(key) ||
+          existingTaskTitleKeys.has(titleKey) ||
+          existingKeys.has(key) ||
+          existingTitleKeys.has(titleKey)
+        ) {
+          return;
+        }
+        existingKeys.add(key);
+        existingTitleKeys.add(titleKey);
+        nextTodos.push(normalized);
+        added += 1;
+      });
+      if (added === 0 && nextTodos.length === currentInfo.todos.length) {
+        return;
+      }
+      await updateConversationExtractedInfo(currentConversation.id, {
+        ...currentInfo,
+        todos: nextTodos,
+        dismissedTodos: Array.from(dismissed)
+      });
+    },
+    [existingTaskKeys, existingTaskTitleKeys, updateConversationExtractedInfo]
+  );
 
   const handleSaveDiary = useCallback(async () => {
     if (activeDiary) {
@@ -887,65 +1246,10 @@ export default function App() {
     if (!content) {
       return;
     }
-    await sendMessage();
+    await sendMessage(chatStylePrompt || undefined);
     const detected = await detectTodos();
-    if (!detected?.todos?.length) {
-      return;
-    }
-    const suggestions = filterTodoSuggestions(detected.todos);
-    enqueueTodoSuggestions(suggestions);
-  }, [
-    messageInput,
-    sendMessage,
-    detectTodos,
-    filterTodoSuggestions,
-    enqueueTodoSuggestions
-  ]);
-
-  const handleConfirmTodo = useCallback(async () => {
-    if (!pendingTodo || !todoDraft) {
-      return;
-    }
-    const title = todoDraft.title.trim();
-    if (!title) {
-      message.error("事项不能为空");
-      return;
-    }
-    const deadline = normalizeTodoDueDate(todoDraft.dueDate);
-    const priority = todoDraft.priority;
-    const created = await createTask({
-      title,
-      description: pendingTodo.notes,
-      priority,
-      deadline: deadline || undefined,
-      conversationId: activeConversation?.id
-    });
-    if (created) {
-      message.success("已加入待办");
-      setTodoQueue((prev) => prev.slice(1));
-    } else {
-      message.error("保存待办失败");
-    }
-  }, [activeConversation?.id, createTask, pendingTodo, todoDraft]);
-
-  const handleDismissTodo = useCallback(async () => {
-    if (!pendingTodo) {
-      return;
-    }
-    const key = buildTodoKeyFromTodo(pendingTodo);
-    if (key.trim()) {
-      await dismissTodoSuggestion(key);
-    }
-    setTodoQueue((prev) => prev.slice(1));
-  }, [dismissTodoSuggestion, pendingTodo]);
-
-  const handleExtractInfo = useCallback(async () => {
-    const result = await extractInfo();
-    if (result) {
-      await loadTasks();
-      message.success(`已提取 ${result.tasks.length} 个任务`);
-    }
-  }, [extractInfo, loadTasks]);
+    await mergeDetectedTodos(detected);
+  }, [chatStylePrompt, detectTodos, mergeDetectedTodos, messageInput, sendMessage]);
 
   const handleCreateTask = useCallback(async () => {
     const title = newTaskTitle.trim();
@@ -1342,13 +1646,6 @@ export default function App() {
                             rowKey={(diary) => diary.id}
                             renderItem={(diary) => {
                               const isActive = diary.id === activeDiary?.id;
-                              const moodLabel = diary.mood
-                                ? MOOD_LABELS[diary.mood]
-                                : "未记录";
-                              const stressLabel =
-                                typeof diary.stressLevel === "number"
-                                  ? `${diary.stressLevel}`
-                                  : "未记录";
                               const preview = stripHtmlText(diary.content ?? "");
 
                               return (
@@ -1368,22 +1665,6 @@ export default function App() {
                                     <Text className="diary-item-title">
                                       {diary.title?.trim() || "未命名"}
                                     </Text>
-                                    <div className="diary-item-meta">
-                                      <span
-                                        className={`diary-pill mood-${diary.mood ?? "unknown"}`}
-                                      >
-                                        <span className="diary-pill-label">心情</span>
-                                        <span className="diary-pill-value">
-                                          {moodLabel}
-                                        </span>
-                                      </span>
-                                      <span className="diary-pill diary-pill-neutral">
-                                        <span className="diary-pill-label">压力</span>
-                                        <span className="diary-pill-value">
-                                          {stressLabel}
-                                        </span>
-                                      </span>
-                                    </div>
                                     {preview ? (
                                       <Text type="secondary" className="diary-item-preview">
                                         {preview}
@@ -1399,7 +1680,7 @@ export default function App() {
                       <div className="diary-list-footer">
                         <div className="diary-list-footer-icon">📝</div>
                         <Text type="secondary" className="diary-list-footer-text">
-                          记录每一天的心情与故事
+                          记录每一天的故事
                         </Text>
                       </div>
                     </div>
@@ -1485,12 +1766,10 @@ export default function App() {
                         value={themeInput}
                         options={THEME_OPTIONS}
                         onChange={(value) =>
-                          setThemeInput(value as AppSettingsPublic["theme"])
+                          void handleThemeChange(value as AppSettingsPublic["theme"])
                         }
+                        disabled={isSavingAppearance}
                       />
-                      <Button onClick={handleSaveAppearance} loading={isSavingAppearance}>
-                        保存设置
-                      </Button>
                     </Space>
                   </div>
                   <div className="settings-section">
@@ -1646,15 +1925,20 @@ export default function App() {
                               模型 ID：{aiModelLabel} ｜ Base URL：{aiBaseUrlLabel} ｜ API Key：
                               {aiApiKeyLabel}
                             </Text>
+                            <div className="chat-style">
+                              <Text type="secondary">对话风格</Text>
+                              <Select
+                                value={chatStyle}
+                                options={CHAT_STYLE_OPTIONS.map((option) => ({
+                                  label: option.label,
+                                  value: option.value
+                                }))}
+                                onChange={handleChatStyleChange}
+                                className="chat-style-select"
+                              />
+                            </div>
                           </div>
                           <Space>
-                            <Button
-                              onClick={handleExtractInfo}
-                              loading={isExtracting}
-                              disabled={!activeConversation}
-                            >
-                              提取信息
-                            </Button>
                             <Button
                               type="primary"
                               onClick={handleGenerateDiary}
@@ -1707,110 +1991,210 @@ export default function App() {
                             发送
                           </Button>
                         </div>
-                        {pendingTodo ? (
-                          <Modal
-                            title="发现待办事项"
-                            open={Boolean(pendingTodo)}
-                            onOk={handleConfirmTodo}
-                            onCancel={handleDismissTodo}
-                            okText="确认"
-                            cancelText="取消"
-                            okButtonProps={{
-                              loading: isTaskSaving,
-                              disabled: !todoDraft?.title.trim()
-                            }}
-                          >
-                            <div className="todo-modal-form">
-                              <div className="todo-modal-row">
-                                <Text strong className="todo-modal-label">
-                                  事项
-                                </Text>
-                                <Input
-                                  className="todo-modal-control"
-                                  value={todoDraft?.title ?? ""}
-                                  placeholder="请输入事项"
-                                  onChange={(event) =>
-                                    setTodoDraft((prev) =>
-                                      prev
-                                        ? { ...prev, title: event.target.value }
-                                        : {
-                                          title: event.target.value,
-                                          priority: "medium",
-                                          dueDate: ""
-                                        }
-                                    )
-                                  }
-                                />
-                              </div>
-                              <div className="todo-modal-row">
-                                <Text strong className="todo-modal-label">
-                                  优先级
-                                </Text>
-                                <Select
-                                  className="todo-modal-control"
-                                  value={todoDraft?.priority ?? "medium"}
-                                  options={TASK_PRIORITY_OPTIONS}
-                                  onChange={(value) =>
-                                    setTodoDraft((prev) =>
-                                      prev
-                                        ? { ...prev, priority: value as TaskPriority }
-                                        : {
-                                          title: pendingTodo.title ?? "",
-                                          priority: value as TaskPriority,
-                                          dueDate: normalizeTodoDueDate(pendingTodo.dueDate)
-                                        }
-                                    )
-                                  }
-                                />
-                              </div>
-                              <div className="todo-modal-row">
-                                <Text strong className="todo-modal-label">
-                                  截止时间
-                                </Text>
-                                <div className="todo-modal-control todo-modal-inline">
-                                  <DatePicker
-                                    className="todo-modal-date"
-                                    value={
-                                      todoDraft?.dueDate
-                                        ? dayjs(todoDraft.dueDate, "YYYY-MM-DD")
-                                        : null
-                                    }
-                                    placeholder="年/月/日"
-                                    onChange={(value) =>
-                                      setTodoDraft((prev) => {
-                                        const nextValue = value
-                                          ? value.format("YYYY-MM-DD")
-                                          : "";
-                                        if (prev) {
-                                          return { ...prev, dueDate: nextValue };
-                                        }
-                                        return {
-                                          title: pendingTodo.title ?? "",
-                                          priority: normalizeTodoPriority(
-                                            pendingTodo.priority
-                                          ),
-                                          dueDate: nextValue
-                                        };
-                                      })
-                                    }
-                                  />
-                                  {!todoDraft?.dueDate ? (
-                                    <Text type="secondary">未知</Text>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {pendingTodo.notes ? (
-                                <div className="todo-modal-row todo-modal-notes">
-                                  <Text strong className="todo-modal-label">
-                                    备注
-                                  </Text>
-                                  <Text>{pendingTodo.notes}</Text>
-                                </div>
-                              ) : null}
-                            </div>
-                          </Modal>
-                        ) : null}
                       </Content>
+                      <Sider width={300} className="chat-todo-sider">
+                        <div className="chat-sider-header">
+                          <Text strong>待办事项</Text>
+                          <Text type="secondary">{todoCards.length} 项</Text>
+                        </div>
+                        <List
+                          className="chat-todo-list"
+                          dataSource={todoCards}
+                          rowKey={(item) => item.key}
+                          locale={{ emptyText: "暂无待办" }}
+                          renderItem={(item) => {
+                            const isEditing =
+                              todoEditTarget?.conversationId === item.conversationId &&
+                              todoEditTarget.index === item.index;
+                            const draft = isEditing ? todoEditDraft : null;
+                            const priority = normalizeTodoPriority(
+                              draft?.priority ?? item.todo.priority
+                            );
+                            const dueDate = normalizeTodoDueDate(
+                              draft?.dueDate ?? item.todo.dueDate
+                            );
+                            const actionPrefix = `${item.conversationId}:${item.index}`;
+                            const isActionLoading = todoActionKey?.startsWith(actionPrefix);
+                            return (
+                              <List.Item className="chat-todo-item">
+                                <div className="todo-card">
+                                  <div className="todo-card-header">
+                                    {isEditing ? (
+                                      <Input
+                                        value={draft?.title ?? ""}
+                                        placeholder="请输入事项"
+                                        onChange={(event) =>
+                                          setTodoEditDraft((prev) =>
+                                            prev
+                                              ? { ...prev, title: event.target.value }
+                                              : {
+                                                  title: event.target.value,
+                                                  priority: "medium",
+                                                  dueDate: "",
+                                                  notes: ""
+                                                }
+                                          )
+                                        }
+                                        className="todo-card-title-input"
+                                      />
+                                    ) : (
+                                      <Text strong className="todo-card-title">
+                                        {item.todo.title}
+                                      </Text>
+                                    )}
+                                    <Tag color={PRIORITY_COLORS[priority]}>
+                                      {PRIORITY_LABELS[priority]}
+                                    </Tag>
+                                  </div>
+                                  <Text type="secondary" className="todo-card-source">
+                                    来自：对话 {item.conversationDate}
+                                    {item.conversationPreview
+                                      ? ` · ${item.conversationPreview}`
+                                      : ""}
+                                  </Text>
+                                  {isEditing ? (
+                                    <div className="todo-card-editor">
+                                      <div className="todo-card-field">
+                                        <Text type="secondary">优先级</Text>
+                                        <Select
+                                          value={draft?.priority ?? "medium"}
+                                          options={TASK_PRIORITY_OPTIONS}
+                                          onChange={(value) =>
+                                            setTodoEditDraft((prev) =>
+                                              prev
+                                                ? {
+                                                    ...prev,
+                                                    priority: value as TaskPriority
+                                                  }
+                                                : {
+                                                    title: item.todo.title ?? "",
+                                                    priority: value as TaskPriority,
+                                                    dueDate: normalizeTodoDueDate(
+                                                      item.todo.dueDate
+                                                    ),
+                                                    notes: item.todo.notes ?? ""
+                                                  }
+                                            )
+                                          }
+                                          className="todo-card-select"
+                                        />
+                                      </div>
+                                      <div className="todo-card-field">
+                                        <Text type="secondary">截止时间</Text>
+                                        <DatePicker
+                                          value={
+                                            draft?.dueDate
+                                              ? dayjs(draft.dueDate, "YYYY-MM-DD")
+                                              : null
+                                          }
+                                          placeholder="年/月/日"
+                                          onChange={(value) =>
+                                            setTodoEditDraft((prev) => {
+                                              const nextValue = value
+                                                ? value.format("YYYY-MM-DD")
+                                                : "";
+                                              if (prev) {
+                                                return { ...prev, dueDate: nextValue };
+                                              }
+                                              return {
+                                                title: item.todo.title ?? "",
+                                                priority: normalizeTodoPriority(
+                                                  item.todo.priority
+                                                ),
+                                                dueDate: nextValue,
+                                                notes: item.todo.notes ?? ""
+                                              };
+                                            })
+                                          }
+                                          className="todo-card-date"
+                                        />
+                                        {!draft?.dueDate ? (
+                                          <Text type="secondary">未知</Text>
+                                        ) : null}
+                                      </div>
+                                      <Input.TextArea
+                                        value={draft?.notes ?? ""}
+                                        placeholder="备注（可选）"
+                                        autoSize={{ minRows: 2, maxRows: 4 }}
+                                        onChange={(event) =>
+                                          setTodoEditDraft((prev) =>
+                                            prev
+                                              ? { ...prev, notes: event.target.value }
+                                              : {
+                                                  title: item.todo.title ?? "",
+                                                  priority: normalizeTodoPriority(
+                                                    item.todo.priority
+                                                  ),
+                                                  dueDate: normalizeTodoDueDate(
+                                                    item.todo.dueDate
+                                                  ),
+                                                  notes: event.target.value
+                                                }
+                                          )
+                                        }
+                                        className="todo-card-notes-input"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="todo-card-meta">
+                                        <Text type="secondary">截止</Text>
+                                        <Text>{dueDate || "未知"}</Text>
+                                      </div>
+                                      {item.todo.notes ? (
+                                        <Text className="todo-card-notes">
+                                          {item.todo.notes}
+                                        </Text>
+                                      ) : null}
+                                    </>
+                                  )}
+                                  <div className="todo-card-actions">
+                                    {isEditing ? (
+                                      <>
+                                        <Button
+                                          size="small"
+                                          type="primary"
+                                          onClick={handleSaveTodoEdit}
+                                          loading={isActionLoading}
+                                          disabled={!draft?.title.trim()}
+                                        >
+                                          保存
+                                        </Button>
+                                        <Button size="small" onClick={handleCancelTodoEdit}>
+                                          取消
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <Button
+                                        size="small"
+                                        onClick={() => handleStartTodoEdit(item)}
+                                      >
+                                        修改
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="small"
+                                      onClick={() => void handleAddTodo(item)}
+                                      loading={isTaskSaving || isActionLoading}
+                                      disabled={Boolean(isEditing && !draft?.title.trim())}
+                                    >
+                                      添加
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      danger
+                                      onClick={() => void handleDeleteTodo(item)}
+                                      loading={isActionLoading}
+                                    >
+                                      删除
+                                    </Button>
+                                  </div>
+                                </div>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      </Sider>
                     </Layout>
                   )
                 },

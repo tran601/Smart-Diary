@@ -1,14 +1,5 @@
 export type DiaryMode = "traditional" | "ai";
 
-export type Mood =
-  | "happy"
-  | "sad"
-  | "anxious"
-  | "angry"
-  | "calm"
-  | "tired"
-  | "excited";
-
 export type ISODateString = string;
 
 export interface Diary {
@@ -18,7 +9,6 @@ export interface Diary {
   content: string | null;
   rawContent: string | null;
   mode: DiaryMode;
-  mood: Mood | null;
   stressLevel: number | null;
   weather: string | null;
   tags: string[];
@@ -35,7 +25,6 @@ export interface DiaryCreateInput {
   date?: string;
   title?: string;
   content: string;
-  mood?: Mood;
   stressLevel?: number;
   weather?: string;
   tags?: string[];
@@ -47,7 +36,6 @@ export interface DiaryCreateInput {
 export interface DiaryUpdateInput {
   title?: string;
   content?: string;
-  mood?: Mood;
   stressLevel?: number;
   weather?: string;
   tags?: string[];
@@ -56,7 +44,6 @@ export interface DiaryUpdateInput {
 
 export interface DiaryFilter {
   mode?: DiaryMode;
-  mood?: Mood;
   tags?: string[];
   dateRange?: {
     start: string;
@@ -75,7 +62,6 @@ export interface ChatMessage {
 }
 
 export interface ExtractedInfo {
-  mood?: Mood;
   events: string[];
   people: string[];
   locations: string[];
@@ -105,7 +91,6 @@ export interface Conversation {
 
 export type ConversationState =
   | "greeting"
-  | "exploring_mood"
   | "exploring_events"
   | "deep_dive"
   | "supplementing"
@@ -150,7 +135,6 @@ export interface WeeklyReportStats {
   diaryCount: number;
   totalWords: number;
   averageStress: number;
-  moodDistribution: Record<Mood, number>;
   topTags: string[];
   taskStats: {
     total: number;

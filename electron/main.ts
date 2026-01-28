@@ -7,7 +7,6 @@ import {
   createConversation,
   createDiary,
   createTask,
-  createTasksFromExtractedInfo,
   createWeeklyReport,
   completeTask,
   deleteDiary,
@@ -32,7 +31,6 @@ import {
   updateTask
 } from "./services/database";
 import {
-  generateAssistantReply,
   generateAssistantReplyStream,
   generateDiaryDraft,
   generateExtractedInfo,
@@ -57,6 +55,13 @@ type WeeklySummaryInput = {
   tasks: ReturnType<typeof getWeeklyReportSourceData>["tasks"];
 };
 
+type ExtractedTodo = {
+  title: string;
+  dueDate?: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  notes?: string;
+};
+
 function stripHtml(input: string) {
   return input.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -68,6 +73,92 @@ function truncateText(input: string, maxLength: number) {
   return `${input.slice(0, maxLength).trim()}...`;
 }
 
+const TODO_PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
+
+function normalizeTodoPriority(value?: string | null): ExtractedTodo["priority"] {
+  if (value && TODO_PRIORITIES.has(value)) {
+    return value as ExtractedTodo["priority"];
+  }
+  return "medium";
+}
+
+function normalizeTodoDueDate(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "未知") {
+    return "";
+  }
+  return trimmed;
+}
+
+function buildTodoKey(title: string, dueDate: string, priority: string) {
+  return `${title.trim()}|${dueDate}|${priority}`;
+}
+
+function buildTodoTitleKey(title: string) {
+  return title.trim().toLowerCase();
+}
+
+function buildExistingTaskKeySet(tasks: ReturnType<typeof listTasks>) {
+  const keys = new Set<string>();
+  for (const task of tasks) {
+    const title = task.title?.trim();
+    if (!title) {
+      continue;
+    }
+    const dueDate = normalizeTodoDueDate(task.deadline);
+    const priority = normalizeTodoPriority(task.priority);
+    keys.add(buildTodoKey(title, dueDate, priority));
+  }
+  return keys;
+}
+
+function buildExistingTaskTitleKeySet(tasks: ReturnType<typeof listTasks>) {
+  const keys = new Set<string>();
+  for (const task of tasks) {
+    const title = task.title?.trim();
+    if (!title) {
+      continue;
+    }
+    keys.add(buildTodoTitleKey(title));
+  }
+  return keys;
+}
+
+function dedupeExtractedTodos(
+  todos: ExtractedTodo[],
+  existingKeys: Set<string>,
+  existingTitleKeys: Set<string>
+) {
+  const seen = new Set(existingKeys);
+  const seenTitles = new Set(existingTitleKeys);
+  const next: ExtractedTodo[] = [];
+  for (const todo of todos) {
+    const title = todo.title?.trim();
+    if (!title) {
+      continue;
+    }
+    const dueDate = normalizeTodoDueDate(todo.dueDate);
+    const priority = normalizeTodoPriority(todo.priority);
+    const key = buildTodoKey(title, dueDate, priority);
+    const titleKey = buildTodoTitleKey(title);
+    if (seen.has(key) || seenTitles.has(titleKey)) {
+      continue;
+    }
+    seen.add(key);
+    seenTitles.add(titleKey);
+    next.push({
+      title,
+      dueDate: dueDate || undefined,
+      priority,
+      notes: todo.notes?.trim() || undefined
+    });
+  }
+  return next;
+}
+
 function buildWeeklySummary(input: WeeklySummaryInput) {
   const lines: string[] = [];
   lines.push(`周区间：${input.weekStart} 至 ${input.weekEnd}`);
@@ -75,13 +166,6 @@ function buildWeeklySummary(input: WeeklySummaryInput) {
     `日记数：${input.stats.diaryCount}，总字数：${input.stats.totalWords}，完成任务：${input.stats.taskStats.completed}/${input.stats.taskStats.total}`
   );
 
-  const moodSummary = Object.entries(input.stats.moodDistribution)
-    .filter(([, count]) => count > 0)
-    .map(([mood, count]) => `${mood}:${count}`)
-    .join("，");
-  if (moodSummary) {
-    lines.push(`情绪分布：${moodSummary}`);
-  }
   if (input.stats.topTags.length > 0) {
     lines.push(`常用标签：${input.stats.topTags.join("，")}`);
   }
@@ -93,8 +177,7 @@ function buildWeeklySummary(input: WeeklySummaryInput) {
       const preview = truncateText(content, 300);
       const tags = diary.tags.length > 0 ? diary.tags.join(", ") : "无";
       lines.push(
-        `- ${diary.date} | ${diary.title ?? "Untitled"} | mood:${diary.mood ?? "unknown"
-        } | tags:${tags} | ${preview}`
+        `- ${diary.date} | ${diary.title ?? "Untitled"} | tags:${tags} | ${preview}`
       );
     });
     if (input.diaries.length > 20) {
@@ -217,14 +300,17 @@ function registerIpcHandlers() {
     return getConversation(id);
   });
 
-  ipcMain.handle("ai:chat", async (event, conversationId) => {
+  ipcMain.handle("ai:chat", async (event, conversationId, stylePrompt) => {
     ensureAiMode();
     const conversation = getConversation(conversationId);
     if (!conversation) {
       throw new Error("Conversation not found.");
     }
     let fullContent = "";
-    for await (const chunk of generateAssistantReplyStream(conversation.messages)) {
+    for await (const chunk of generateAssistantReplyStream(
+      conversation.messages,
+      stylePrompt
+    )) {
       fullContent += chunk;
       event.sender.send("ai:chat:chunk", { conversationId, chunk });
     }
@@ -249,29 +335,31 @@ function registerIpcHandlers() {
     return diary;
   });
 
-  ipcMain.handle("ai:extractInfo", async (_event, conversationId) => {
-    ensureAiMode();
-    const conversation = getConversation(conversationId);
-    if (!conversation) {
-      throw new Error("Conversation not found.");
-    }
-    const extractedInfo = await generateExtractedInfo(conversation.messages);
-    const dismissedTodos = conversation.extractedInfo?.dismissedTodos ?? [];
-    const mergedInfo = { ...extractedInfo, dismissedTodos };
-    updateConversationExtractedInfo(conversationId, mergedInfo);
-    const tasks = createTasksFromExtractedInfo(conversationId, mergedInfo);
-    return { extractedInfo: mergedInfo, tasks };
-  });
-
   ipcMain.handle("ai:detectTodos", async (_event, conversationId) => {
     ensureAiMode();
     const conversation = getConversation(conversationId);
     if (!conversation) {
       throw new Error("Conversation not found.");
     }
-    const extractedInfo = await generateExtractedInfo(conversation.messages);
+    const taskRecords = listTasks();
+    const existingTasks = taskRecords.map((task) => ({
+      title: task.title,
+      status: task.status,
+      deadline: task.deadline
+    }));
+    const existingTaskKeys = buildExistingTaskKeySet(taskRecords);
+    const existingTaskTitleKeys = buildExistingTaskTitleKeySet(taskRecords);
+    const extractedInfo = await generateExtractedInfo(
+      conversation.messages,
+      existingTasks
+    );
+    const filteredTodos = dedupeExtractedTodos(
+      extractedInfo.todos as ExtractedTodo[],
+      existingTaskKeys,
+      existingTaskTitleKeys
+    );
     const dismissedTodos = conversation.extractedInfo?.dismissedTodos ?? [];
-    return { ...extractedInfo, dismissedTodos };
+    return { ...extractedInfo, todos: filteredTodos, dismissedTodos };
   });
 
   ipcMain.handle("task:list", () => listTasks());

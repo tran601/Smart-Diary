@@ -1,11 +1,5 @@
 import { create } from "zustand";
-import type {
-  ChatMessage,
-  Conversation,
-  Diary,
-  ExtractedInfo,
-  Task
-} from "../types/database";
+import type { ChatMessage, Conversation, Diary, ExtractedInfo } from "../types/database";
 import { conversationService } from "../services/conversation.service";
 import { aiService } from "../services/ai.service";
 
@@ -16,18 +10,20 @@ interface ConversationState {
   isLoading: boolean;
   isSending: boolean;
   isGenerating: boolean;
-  isExtracting: boolean;
   isDetectingTodo: boolean;
   error: string | null;
   loadConversations: () => Promise<void>;
   createConversation: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
-  sendMessage: () => Promise<void>;
+  sendMessage: (stylePrompt?: string) => Promise<void>;
   generateDiaryDraft: () => Promise<Diary | null>;
-  extractInfo: () => Promise<{ extractedInfo: ExtractedInfo; tasks: Task[] } | null>;
   detectTodos: () => Promise<ExtractedInfo | null>;
   dismissTodoSuggestion: (todoKey: string) => Promise<void>;
+  updateConversationExtractedInfo: (
+    id: string,
+    extractedInfo: ExtractedInfo
+  ) => Promise<Conversation | null>;
   setMessageInput: (value: string) => void;
   clearError: () => void;
 }
@@ -54,7 +50,6 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
 
 function normalizeExtractedInfo(info?: ExtractedInfo): ExtractedInfo {
   return {
-    mood: info?.mood,
     events: info?.events ?? [],
     people: info?.people ?? [],
     locations: info?.locations ?? [],
@@ -84,7 +79,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   isLoading: false,
   isSending: false,
   isGenerating: false,
-  isExtracting: false,
   isDetectingTodo: false,
   error: null,
   loadConversations: async () => {
@@ -166,7 +160,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set({ isLoading: false });
     }
   },
-  sendMessage: async () => {
+  sendMessage: async (stylePrompt) => {
     const { activeConversation, messageInput } = get();
     const content = messageInput.trim();
     if (!content) {
@@ -238,7 +232,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       });
 
       // Wait for chat to complete and persist final message
-      const reply = await aiService.chat(conversationId);
+      const reply = await aiService.chat(conversationId, stylePrompt);
       aiService.offChatListeners();
 
       // Persist the final assistant message
@@ -275,41 +269,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       return null;
     } finally {
       set({ isGenerating: false });
-    }
-  },
-  extractInfo: async () => {
-    const { activeConversation } = get();
-    if (!activeConversation) {
-      set({ error: "Select a conversation first." });
-      return null;
-    }
-    set({ isExtracting: true });
-    try {
-      const result = await aiService.extractInfo(activeConversation.id);
-      const refreshed = await conversationService.get(activeConversation.id);
-      if (refreshed) {
-        set({
-          activeConversation: refreshed,
-          conversations: upsertConversation(get().conversations, refreshed)
-        });
-      } else {
-        set({
-          activeConversation: {
-            ...activeConversation,
-            extractedInfo: result.extractedInfo
-          },
-          conversations: upsertConversation(get().conversations, {
-            ...activeConversation,
-            extractedInfo: result.extractedInfo
-          })
-        });
-      }
-      return result;
-    } catch (err) {
-      set({ error: toErrorMessage(err) });
-      return null;
-    } finally {
-      set({ isExtracting: false });
     }
   },
   detectTodos: async () => {
@@ -359,6 +318,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       });
     } catch (err) {
       set({ error: toErrorMessage(err) });
+    }
+  },
+  updateConversationExtractedInfo: async (id, extractedInfo) => {
+    try {
+      const updated = await conversationService.updateExtractedInfo(id, extractedInfo);
+      if (!updated) {
+        set({ error: "Conversation not found." });
+        return null;
+      }
+      const active = get().activeConversation;
+      set({
+        activeConversation: active?.id === id ? updated : active,
+        conversations: upsertConversation(get().conversations, updated)
+      });
+      return updated;
+    } catch (err) {
+      set({ error: toErrorMessage(err) });
+      return null;
     }
   },
   setMessageInput: (value) => set({ messageInput: value }),

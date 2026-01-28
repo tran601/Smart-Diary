@@ -1,8 +1,10 @@
-import type { Diary, ExtractedInfo, Task } from "../types/database";
+import type { Diary, ExtractedInfo } from "../types/database";
 
 export const aiService = {
-  chat: (conversationId: string): Promise<{ content: string }> =>
-    window.api.ai.chat(conversationId),
+  chat: (
+    conversationId: string,
+    stylePrompt?: string
+  ): Promise<{ content: string }> => window.api.ai.chat(conversationId, stylePrompt),
   onChatChunk: (callback: (data: { conversationId: string; chunk: string }) => void) =>
     window.api.ai.onChatChunk(callback),
   onChatDone: (callback: (data: { conversationId: string }) => void) =>
@@ -10,10 +12,6 @@ export const aiService = {
   offChatListeners: () => window.api.ai.offChatListeners(),
   generateDiaryDraft: (conversationId: string): Promise<Diary> =>
     window.api.ai.generateDiary(conversationId),
-  extractInfo: (
-    conversationId: string
-  ): Promise<{ extractedInfo: ExtractedInfo; tasks: Task[] }> =>
-    window.api.ai.extractInfo(conversationId),
   detectTodos: (conversationId: string): Promise<ExtractedInfo> =>
     window.api.ai.detectTodos(conversationId)
 };

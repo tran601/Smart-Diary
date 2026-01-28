@@ -26,8 +26,8 @@ const api = {
       ipcRenderer.invoke("conversation:updateExtractedInfo", id, extractedInfo)
   },
   ai: {
-    chat: (conversationId: string) =>
-      ipcRenderer.invoke("ai:chat", conversationId),
+    chat: (conversationId: string, stylePrompt?: string) =>
+      ipcRenderer.invoke("ai:chat", conversationId, stylePrompt),
     onChatChunk: (callback: (data: { conversationId: string; chunk: string }) => void) =>
       ipcRenderer.on("ai:chat:chunk", (_event, data) => callback(data)),
     onChatDone: (callback: (data: { conversationId: string }) => void) =>
@@ -38,8 +38,6 @@ const api = {
     },
     generateDiary: (conversationId: string) =>
       ipcRenderer.invoke("ai:generateDiary", conversationId),
-    extractInfo: (conversationId: string) =>
-      ipcRenderer.invoke("ai:extractInfo", conversationId),
     detectTodos: (conversationId: string) =>
       ipcRenderer.invoke("ai:detectTodos", conversationId)
   },

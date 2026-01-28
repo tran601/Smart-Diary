@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS diaries (
   content TEXT,
   raw_content TEXT,
   mode TEXT NOT NULL DEFAULT 'traditional',
-  mood TEXT,
   stress_level INTEGER,
   weather TEXT,
   tags TEXT DEFAULT '[]',
@@ -25,7 +24,6 @@ CREATE TABLE IF NOT EXISTS diaries (
 
 CREATE INDEX IF NOT EXISTS idx_diaries_date ON diaries(date);
 CREATE INDEX IF NOT EXISTS idx_diaries_mode ON diaries(mode);
-CREATE INDEX IF NOT EXISTS idx_diaries_mood ON diaries(mood);
 CREATE INDEX IF NOT EXISTS idx_diaries_deleted ON diaries(is_deleted);
 
 CREATE TABLE IF NOT EXISTS conversations (

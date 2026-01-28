@@ -21,12 +21,17 @@ type ExtractedTodo = {
 };
 
 type ExtractedInfo = {
-  mood?: string;
   events: string[];
   people: string[];
   locations: string[];
   todos: ExtractedTodo[];
   dismissedTodos?: string[];
+};
+
+type ExistingTask = {
+  title: string;
+  status: string;
+  deadline?: string | null;
 };
 
 type WeeklyReportContent = {
@@ -45,15 +50,15 @@ const DIARY_SYSTEM_PROMPT =
   "You are a journaling assistant. Based on the conversation, write a diary draft in Chinese.\n" +
   "Requirements:\n" +
   "1) First line must be '标题: <short title>'.\n" +
-  "2) Then write 2-5 short paragraphs, covering mood, key events, and highlights.\n" +
+  "2) Then write 2-5 short paragraphs, covering key events and highlights.\n" +
   "3) Plain text only, no markdown and no JSON.";
 
 const EXTRACT_SYSTEM_PROMPT_BASE =
   "You are an assistant that extracts structured information from a conversation.\n" +
   "The current date/time context will be provided below. Use it to calculate precise due dates when the user mentions relative times like '明天', '下周一', '后天' etc.\n" +
+  "You will also receive a list of existing tasks (including completed). Do NOT output any todo that duplicates an existing task.\n" +
   "Return ONLY valid JSON with the following schema:\n" +
   "{\n" +
-  '  "mood": "happy|sad|anxious|angry|calm|tired|excited",\n' +
   '  "events": ["..."],\n' +
   '  "people": ["..."],\n' +
   '  "locations": ["..."],\n' +
@@ -217,7 +222,6 @@ function normalizeExtractedInfo(payload: Partial<ExtractedInfo>): ExtractedInfo 
   };
 
   return {
-    mood: payload.mood,
     events: Array.isArray(payload.events) ? payload.events.filter(Boolean) : [],
     people: Array.isArray(payload.people) ? payload.people.filter(Boolean) : [],
     locations: Array.isArray(payload.locations)
@@ -255,7 +259,7 @@ function normalizeWeeklyReportContent(
   };
 }
 
-function buildChatSystemPrompt(): string {
+function buildChatSystemPrompt(stylePrompt?: string): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -265,26 +269,33 @@ function buildChatSystemPrompt(): string {
   const second = now.getSeconds();
   const weekday = WEEKDAYS_CN[now.getDay()];
   const dateContext = `当前时间：${year}年${month}月${day}日 ${hour}时${minute}分${second}秒，${weekday}。`;
-  return CHAT_SYSTEM_PROMPT_BASE + "\n\n" + dateContext;
+  const styleBlock = stylePrompt?.trim()
+    ? `\n\nStyle:\n${stylePrompt.trim()}`
+    : "";
+  return CHAT_SYSTEM_PROMPT_BASE + styleBlock + "\n\n" + dateContext;
 }
 
-export async function generateAssistantReply(messages: ChatMessage[]) {
+export async function generateAssistantReply(
+  messages: ChatMessage[],
+  stylePrompt?: string
+) {
   if (messages.length === 0) {
     throw new Error("Conversation is empty.");
   }
-  const systemPrompt = buildChatSystemPrompt();
+  const systemPrompt = buildChatSystemPrompt(stylePrompt);
   const openAiMessages = toOpenAiMessages(messages, systemPrompt);
   return createChatCompletion(openAiMessages, 0.7);
 }
 
 export async function* generateAssistantReplyStream(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  stylePrompt?: string
 ): AsyncGenerator<string, void, unknown> {
   if (messages.length === 0) {
     throw new Error("Conversation is empty.");
   }
   const model = resolveModel();
-  const systemPrompt = buildChatSystemPrompt();
+  const systemPrompt = buildChatSystemPrompt(stylePrompt);
   const openAiMessages = toOpenAiMessages(messages, systemPrompt);
   const stream = await getClient().chat.completions.create({
     model,
@@ -317,9 +328,24 @@ export async function generateDiaryDraft(messages: ChatMessage[]): Promise<Diary
   };
 }
 
+function formatExistingTasks(tasks: ExistingTask[]) {
+  const lines = tasks
+    .filter((task) => task.title?.trim())
+    .slice(0, 50)
+    .map((task, index) => {
+      const deadline = task.deadline?.trim() || "unknown";
+      const status = task.status || "unknown";
+      return `${index + 1}. ${task.title.trim()} | ${deadline} | ${status}`;
+    });
+  if (lines.length === 0) {
+    return "";
+  }
+  return `\n\nExisting tasks (do NOT duplicate):\n${lines.join("\n")}`;
+}
+
 const WEEKDAYS_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-function buildExtractSystemPrompt(): string {
+function buildExtractSystemPrompt(existingTasks: ExistingTask[] = []): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -327,11 +353,13 @@ function buildExtractSystemPrompt(): string {
   const hour = now.getHours();
   const weekday = WEEKDAYS_CN[now.getDay()];
   const dateContext = `当前时间：${year}年${month}月${day}日 ${hour}点，${weekday}。`;
-  return EXTRACT_SYSTEM_PROMPT_BASE + "\n\n" + dateContext;
+  const taskContext = formatExistingTasks(existingTasks);
+  return EXTRACT_SYSTEM_PROMPT_BASE + taskContext + "\n\n" + dateContext;
 }
 
 export async function generateExtractedInfo(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  existingTasks: ExistingTask[] = []
 ): Promise<ExtractedInfo> {
   if (messages.length === 0) {
     throw new Error("Conversation is empty.");
@@ -341,7 +369,7 @@ export async function generateExtractedInfo(
   if (userMessages.length === 0) {
     throw new Error("No user messages found.");
   }
-  const systemPrompt = buildExtractSystemPrompt();
+  const systemPrompt = buildExtractSystemPrompt(existingTasks);
   const openAiMessages = toOpenAiMessages(userMessages, systemPrompt);
   const rawText = await createChatCompletion(openAiMessages, 0.2);
   if (!rawText) {

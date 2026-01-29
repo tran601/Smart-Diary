@@ -1853,8 +1853,8 @@ export default function App() {
               children: (
                 <div className="settings-layout">
                   <div className="settings-section">
-                    <Text strong>外观</Text>
-                    <Space wrap>
+                    <div className="settings-row">
+                      <Text strong>外观</Text>
                       <Select
                         value={themeInput}
                         options={THEME_OPTIONS}
@@ -1862,8 +1862,9 @@ export default function App() {
                           void handleThemeChange(value as AppSettingsPublic["theme"])
                         }
                         disabled={isSavingAppearance}
+                        style={{ width: 120 }}
                       />
-                    </Space>
+                    </div>
                   </div>
                   <div className="settings-section">
                     <Text strong>AI 设置</Text>

@@ -79,8 +79,8 @@ body {
   display: flex;
   align-items: center;
   background: var(--bg-secondary);
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border-secondary);
+  padding: 8px 30px;
+  border-bottom: 8px solid var(--border-secondary);
   box-shadow: 0 1px 2px var(--shadow-sm);
   z-index: 10;
   transition: background-color 0.3s ease, border-color 0.3s ease;
@@ -106,7 +106,7 @@ body {
 }
 
 .mode-switch .ant-segmented-item {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .mode-switch .mode-item-traditional {
@@ -133,13 +133,13 @@ body {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   margin: 0;
-  font-size: 20px !important;
+  font-size: 24px !important;
   font-weight: 800 !important;
   letter-spacing: -0.5px;
 }
 
 .app-content {
-  padding: 16px 24px 24px;
+  padding: 8px 24px 24px;
   flex: 1;
   overflow: hidden;
   display: flex;
@@ -228,7 +228,7 @@ body {
   height: 100%;
   min-height: 0;
   flex: 1;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
   border: 1px solid var(--border-primary);
   transition: border-color 0.3s ease;
@@ -453,20 +453,20 @@ body {
 }
 
 .calendar-cell {
-  height: 52px;
-  border-radius: 10px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 0px;
   color: var(--text-primary);
   transition: background 0.2s ease, color 0.2s ease;
 }
 
 .calendar-date {
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 16px;
 }
 
 .calendar-dot {
@@ -1368,6 +1368,12 @@ body {
   flex-direction: column;
   gap: 12px;
   max-width: 640px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 @media (max-width: 900px) {

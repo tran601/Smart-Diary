@@ -73,6 +73,15 @@ type TaskCreateInput = {
   conversationId?: string;
 };
 
+type TaskUpdateInput = {
+  title?: string;
+  description?: string | null;
+  priority?: TaskPriority;
+  deadline?: string | null;
+  status?: TaskStatus;
+  completionNote?: string | null;
+};
+
 type DiaryRow = {
   id: string;
   date: string;
@@ -708,16 +717,23 @@ export function listTasks(): TaskRecord[] {
 
 export function updateTask(
   id: string,
-  input: {
-    priority?: TaskPriority;
-    deadline?: string | null;
-  }
+  input: TaskUpdateInput
 ): TaskRecord | null {
   const fields: string[] = [];
   const values: Record<string, unknown> = {
     id,
     updated_at: new Date().toISOString()
   };
+
+  if (input.title !== undefined) {
+    fields.push("title = @title");
+    values.title = input.title;
+  }
+
+  if (input.description !== undefined) {
+    fields.push("description = @description");
+    values.description = input.description;
+  }
 
   if (input.priority !== undefined) {
     fields.push("priority = @priority");
@@ -726,7 +742,17 @@ export function updateTask(
 
   if (input.deadline !== undefined) {
     fields.push("deadline = @deadline");
-    values.deadline = input.deadline;
+    values.deadline = normalizeDueDate(input.deadline);
+  }
+
+  if (input.status !== undefined) {
+    fields.push("status = @status");
+    values.status = input.status;
+  }
+
+  if (input.completionNote !== undefined) {
+    fields.push("completion_note = @completion_note");
+    values.completion_note = input.completionNote;
   }
 
   if (fields.length === 0) {
@@ -745,14 +771,17 @@ export function updateTask(
     .run(values);
 
   if (result.changes === 0) {
-    return null;
+    const existing = getDb()
+      .prepare("SELECT * FROM tasks WHERE id = ? AND is_deleted = 0")
+      .get(id) as TaskRow | undefined;
+    return existing ? mapTaskRow(existing) : null;
   }
 
   const row = getDb()
-    .prepare("SELECT * FROM tasks WHERE id = ?")
-    .get(id) as TaskRow;
+    .prepare("SELECT * FROM tasks WHERE id = ? AND is_deleted = 0")
+    .get(id) as TaskRow | undefined;
 
-  return mapTaskRow(row);
+  return row ? mapTaskRow(row) : null;
 }
 
 export function completeTask(id: string): TaskRecord | null {

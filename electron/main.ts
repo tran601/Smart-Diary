@@ -55,10 +55,12 @@ type WeeklySummaryInput = {
   tasks: ReturnType<typeof getWeeklyReportSourceData>["tasks"];
 };
 
+type TodoPriority = "low" | "medium" | "high" | "urgent";
+
 type ExtractedTodo = {
   title: string;
   dueDate?: string;
-  priority?: "low" | "medium" | "high" | "urgent";
+  priority?: TodoPriority;
   notes?: string;
 };
 
@@ -73,11 +75,16 @@ function truncateText(input: string, maxLength: number) {
   return `${input.slice(0, maxLength).trim()}...`;
 }
 
-const TODO_PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
+const TODO_PRIORITIES = new Set<TodoPriority>([
+  "low",
+  "medium",
+  "high",
+  "urgent"
+]);
 
-function normalizeTodoPriority(value?: string | null): ExtractedTodo["priority"] {
-  if (value && TODO_PRIORITIES.has(value)) {
-    return value as ExtractedTodo["priority"];
+function normalizeTodoPriority(value?: string | null): TodoPriority {
+  if (value && TODO_PRIORITIES.has(value as TodoPriority)) {
+    return value as TodoPriority;
   }
   return "medium";
 }
@@ -93,7 +100,7 @@ function normalizeTodoDueDate(value?: string | null) {
   return trimmed;
 }
 
-function buildTodoKey(title: string, dueDate: string, priority: string) {
+function buildTodoKey(title: string, dueDate: string, priority: TodoPriority) {
   return `${title.trim()}|${dueDate}|${priority}`;
 }
 
@@ -317,13 +324,13 @@ function registerIpcHandlers() {
     event.sender.send("ai:chat:done", { conversationId });
     return { content: fullContent };
   });
-  ipcMain.handle("ai:generateDiary", async (_event, conversationId) => {
+  ipcMain.handle("ai:generateDiary", async (_event, conversationId, stylePrompt) => {
     ensureAiMode();
     const conversation = getConversation(conversationId);
     if (!conversation) {
       throw new Error("Conversation not found.");
     }
-    const draft = await generateDiaryDraft(conversation.messages);
+    const draft = await generateDiaryDraft(conversation.messages, stylePrompt);
     const diary = createDiary({
       title: draft.title,
       content: draft.content,

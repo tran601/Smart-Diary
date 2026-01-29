@@ -18,6 +18,7 @@
   Typography,
   Tooltip
 } from "antd";
+import { CloseOutlined } from "@ant-design/icons";
 import type { CalendarProps } from "antd";
 import calendarLocale from "antd/es/calendar/locale/zh_CN";
 import dayjs, { type Dayjs } from "dayjs";
@@ -301,11 +302,18 @@ type TaskRowProps = {
 function TaskRow({ task, isSaving, onUpdate, onComplete, onDelete }: TaskRowProps) {
   const [deadline, setDeadline] = useState(task.deadline ?? "");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [descriptionDraft, setDescriptionDraft] = useState(task.description ?? "");
 
   useEffect(() => {
     setDeadline(task.deadline ?? "");
     setPriority(task.priority);
   }, [task.deadline, task.priority]);
+
+  useEffect(() => {
+    setTitleDraft(task.title);
+    setDescriptionDraft(task.description ?? "");
+  }, [task.title, task.description]);
 
   // 自动保存：当优先级或截止时间变化时
   useEffect(() => {
@@ -323,6 +331,36 @@ function TaskRow({ task, isSaving, onUpdate, onComplete, onDelete }: TaskRowProp
       return () => clearTimeout(timer);
     }
   }, [priority, deadline, task.id, task.priority, task.deadline, task.status, onUpdate]);
+
+  // 自动保存：标题与备注
+  useEffect(() => {
+    if (task.status === "completed") return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      return;
+    }
+    const nextDescription = descriptionDraft.trim();
+    const nextNormalizedDescription = nextDescription ? nextDescription : null;
+    const needsUpdate =
+      nextTitle !== task.title ||
+      (task.description ?? null) !== nextNormalizedDescription;
+    if (!needsUpdate) return;
+    const timer = setTimeout(() => {
+      void onUpdate(task.id, {
+        title: nextTitle,
+        description: nextNormalizedDescription
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [
+    titleDraft,
+    descriptionDraft,
+    task.id,
+    task.title,
+    task.description,
+    task.status,
+    onUpdate
+  ]);
 
   const statusColor = STATUS_COLORS[task.status];
   const actions: React.ReactNode[] = [];
@@ -358,30 +396,66 @@ function TaskRow({ task, isSaving, onUpdate, onComplete, onDelete }: TaskRowProp
       className={
         task.status === "completed" ? "task-item completed" : "task-item"
       }
-      actions={actions}
     >
       <div className="task-main">
         <div className="task-head">
           <div className="task-title-block">
-            <Text strong className="task-title">
-              {task.title}
-            </Text>
-            {task.description ? (
-              <Text type="secondary" className="task-desc">
-                {task.description}
-              </Text>
-            ) : null}
+            <Input.TextArea
+              value={titleDraft}
+              placeholder="任务标题"
+              onChange={(event) => setTitleDraft(event.target.value)}
+              className="task-title-input"
+              autoSize={{ minRows: 1, maxRows: 2 }}
+              disabled={task.status === "completed"}
+            />
           </div>
-          <div className="task-tags">
-            <Tag color={PRIORITY_COLORS[priority]}>{PRIORITY_LABELS[priority]}</Tag>
-            <Tag color={statusColor}>{STATUS_LABELS[task.status]}</Tag>
+          <div className="task-head-meta">
+            <div className="task-tags">
+              <Tag color={PRIORITY_COLORS[priority]}>{PRIORITY_LABELS[priority]}</Tag>
+              <Tag color={statusColor}>{STATUS_LABELS[task.status]}</Tag>
+            </div>
+            <Text type="secondary" className="task-deadline-inline">
+              截止 {deadlineLabel}
+            </Text>
           </div>
         </div>
-        <div className="task-meta-row">
-          <Text type="secondary" className="task-meta-label">
-            截止
-          </Text>
-          <Text className="task-meta-value">{deadlineLabel}</Text>
+        <div className="task-notes-row">
+          <div className="task-notes">
+            <div className="task-notes-label">
+              <Text type="secondary">备注</Text>
+              <Text type="secondary" className="task-notes-hint">
+                可选
+              </Text>
+            </div>
+            <Input.TextArea
+              value={descriptionDraft}
+              placeholder="补充说明..."
+              autoSize={{ minRows: 1, maxRows: 3 }}
+              onChange={(event) => setDescriptionDraft(event.target.value)}
+              className="task-notes-input"
+              disabled={task.status === "completed"}
+            />
+          </div>
+          <div className="task-actions">
+            {task.status !== "completed" && (
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => onComplete(task.id)}
+                loading={isSaving}
+              >
+                完成
+              </Button>
+            )}
+            <Button
+              size="small"
+              danger
+              onClick={() => onDelete(task.id)}
+              loading={isSaving}
+            >
+              删除
+            </Button>
+          </div>
         </div>
         <div className="task-controls">
           <span className="task-control-group">
@@ -511,6 +585,7 @@ export default function App() {
   const [diarySearch, setDiarySearch] = useState("");
   const [draftDate, setDraftDate] = useState<string | null>(null);
   const [aiNoticeCollapsed, setAiNoticeCollapsed] = useState(false);
+  const [isAiNoticeClosed, setIsAiNoticeClosed] = useState(false);
   const [isCalendarCollapsed, setIsCalendarCollapsed] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -857,6 +932,11 @@ export default function App() {
     try {
       const nextSettings = await settingsService.set({ appMode: value });
       applySettings(nextSettings);
+      // 切换到AI模式时重置提示状态
+      if (value === "ai") {
+        setIsAiNoticeClosed(false);
+        setAiNoticeCollapsed(false);
+      }
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -915,6 +995,10 @@ export default function App() {
     } catch {
       // ignore storage errors
     }
+  };
+
+  const handleCloseAiNotice = () => {
+    setIsAiNoticeClosed(true);
   };
 
   const handleChatStyleChange = (value: string) => {
@@ -1274,14 +1358,14 @@ export default function App() {
   }, [createTask, newTaskDeadline, newTaskPriority, newTaskTitle]);
 
   const handleGenerateDiary = useCallback(async () => {
-    const diary = await generateDiaryDraft();
+    const diary = await generateDiaryDraft(chatStylePrompt || undefined);
     if (diary) {
       await loadDiaries();
       await selectDiary(diary.id);
       setActiveTab("diary");
       message.success("已生成日记草稿");
     }
-  }, [generateDiaryDraft, loadDiaries, selectDiary]);
+  }, [chatStylePrompt, generateDiaryDraft, loadDiaries, selectDiary]);
 
   const handleExportBackup = useCallback(async () => {
     setIsExporting(true);
@@ -1518,7 +1602,7 @@ export default function App() {
         </div>
       </Header>
       <Content className="app-content">
-        {appMode === "ai" ? (
+        {appMode === "ai" && !isAiNoticeClosed ? (
           <div className={`ai-notice${aiNoticeCollapsed ? " is-collapsed" : ""}`}>
             <div className="ai-notice-content">
               <Text strong className="ai-notice-title">
@@ -1531,19 +1615,28 @@ export default function App() {
               </Text>
             </div>
             <div className="ai-notice-actions">
-              {aiNoticeCollapsed ? (
+              <Space size={4}>
+                {aiNoticeCollapsed ? (
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => handleToggleAiNotice(false)}
+                  >
+                    展开
+                  </Button>
+                ) : (
+                  <Button size="small" onClick={() => handleToggleAiNotice(true)}>
+                    我知道了
+                  </Button>
+                )}
                 <Button
-                  type="link"
+                  type="text"
                   size="small"
-                  onClick={() => handleToggleAiNotice(false)}
-                >
-                  展开
-                </Button>
-              ) : (
-                <Button size="small" onClick={() => handleToggleAiNotice(true)}>
-                  我知道了
-                </Button>
-              )}
+                  icon={<CloseOutlined />}
+                  onClick={handleCloseAiNotice}
+                  title="关闭提示"
+                />
+              </Space>
             </div>
           </div>
         ) : null}
@@ -2112,28 +2205,39 @@ export default function App() {
                                           <Text type="secondary">未知</Text>
                                         ) : null}
                                       </div>
-                                      <Input.TextArea
-                                        value={draft?.notes ?? ""}
-                                        placeholder="备注（可选）"
-                                        autoSize={{ minRows: 2, maxRows: 4 }}
-                                        onChange={(event) =>
-                                          setTodoEditDraft((prev) =>
-                                            prev
-                                              ? { ...prev, notes: event.target.value }
-                                              : {
-                                                  title: item.todo.title ?? "",
-                                                  priority: normalizeTodoPriority(
-                                                    item.todo.priority
-                                                  ),
-                                                  dueDate: normalizeTodoDueDate(
-                                                    item.todo.dueDate
-                                                  ),
-                                                  notes: event.target.value
-                                                }
-                                          )
-                                        }
-                                        className="todo-card-notes-input"
-                                      />
+                                      <div className="todo-card-notes">
+                                        <div className="todo-card-notes-label">
+                                          <Text type="secondary">备注</Text>
+                                          <Text
+                                            type="secondary"
+                                            className="todo-card-notes-hint"
+                                          >
+                                            可选
+                                          </Text>
+                                        </div>
+                                        <Input.TextArea
+                                          value={draft?.notes ?? ""}
+                                          placeholder="备注（可选）"
+                                          autoSize={{ minRows: 2, maxRows: 4 }}
+                                          onChange={(event) =>
+                                            setTodoEditDraft((prev) =>
+                                              prev
+                                                ? { ...prev, notes: event.target.value }
+                                                : {
+                                                    title: item.todo.title ?? "",
+                                                    priority: normalizeTodoPriority(
+                                                      item.todo.priority
+                                                    ),
+                                                    dueDate: normalizeTodoDueDate(
+                                                      item.todo.dueDate
+                                                    ),
+                                                    notes: event.target.value
+                                                  }
+                                            )
+                                          }
+                                          className="todo-card-notes-input"
+                                        />
+                                      </div>
                                     </div>
                                   ) : (
                                     <>
@@ -2142,9 +2246,14 @@ export default function App() {
                                         <Text>{dueDate || "未知"}</Text>
                                       </div>
                                       {item.todo.notes ? (
-                                        <Text className="todo-card-notes">
-                                          {item.todo.notes}
-                                        </Text>
+                                        <div className="todo-card-notes">
+                                          <div className="todo-card-notes-label">
+                                            <Text type="secondary">备注</Text>
+                                          </div>
+                                          <Text className="todo-card-notes-text">
+                                            {item.todo.notes}
+                                          </Text>
+                                        </div>
                                       ) : null}
                                     </>
                                   )}

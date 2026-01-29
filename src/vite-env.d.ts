@@ -52,7 +52,7 @@ declare global {
         onChatChunk: (callback: (data: { conversationId: string; chunk: string }) => void) => void;
         onChatDone: (callback: (data: { conversationId: string }) => void) => void;
         offChatListeners: () => void;
-        generateDiary: (conversationId: string) => Promise<Diary>;
+        generateDiary: (conversationId: string, stylePrompt?: string) => Promise<Diary>;
         detectTodos: (conversationId: string) => Promise<ExtractedInfo>;
       };
       task: {

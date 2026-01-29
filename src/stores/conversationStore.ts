@@ -17,7 +17,7 @@ interface ConversationState {
   selectConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   sendMessage: (stylePrompt?: string) => Promise<void>;
-  generateDiaryDraft: () => Promise<Diary | null>;
+  generateDiaryDraft: (stylePrompt?: string) => Promise<Diary | null>;
   detectTodos: () => Promise<ExtractedInfo | null>;
   dismissTodoSuggestion: (todoKey: string) => Promise<void>;
   updateConversationExtractedInfo: (
@@ -254,7 +254,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       set({ isSending: false });
     }
   },
-  generateDiaryDraft: async () => {
+  generateDiaryDraft: async (stylePrompt?: string) => {
     const { activeConversation } = get();
     if (!activeConversation) {
       set({ error: "Select a conversation first." });
@@ -262,7 +262,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }
     set({ isGenerating: true });
     try {
-      const diary = await aiService.generateDiaryDraft(activeConversation.id);
+      const diary = await aiService.generateDiaryDraft(activeConversation.id, stylePrompt);
       return diary;
     } catch (err) {
       set({ error: toErrorMessage(err) });

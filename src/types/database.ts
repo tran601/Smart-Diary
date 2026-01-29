@@ -125,6 +125,8 @@ export interface TaskCreateInput {
 }
 
 export interface TaskUpdateInput {
+  title?: string;
+  description?: string | null;
   priority?: TaskPriority;
   deadline?: ISODateString | null;
   status?: TaskStatus;

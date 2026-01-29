@@ -36,8 +36,8 @@ const api = {
       ipcRenderer.removeAllListeners("ai:chat:chunk");
       ipcRenderer.removeAllListeners("ai:chat:done");
     },
-    generateDiary: (conversationId: string) =>
-      ipcRenderer.invoke("ai:generateDiary", conversationId),
+    generateDiary: (conversationId: string, stylePrompt?: string) =>
+      ipcRenderer.invoke("ai:generateDiary", conversationId, stylePrompt),
     detectTodos: (conversationId: string) =>
       ipcRenderer.invoke("ai:detectTodos", conversationId)
   },

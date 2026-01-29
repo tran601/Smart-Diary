@@ -10,8 +10,8 @@ export const aiService = {
   onChatDone: (callback: (data: { conversationId: string }) => void) =>
     window.api.ai.onChatDone(callback),
   offChatListeners: () => window.api.ai.offChatListeners(),
-  generateDiaryDraft: (conversationId: string): Promise<Diary> =>
-    window.api.ai.generateDiary(conversationId),
+  generateDiaryDraft: (conversationId: string, stylePrompt?: string): Promise<Diary> =>
+    window.api.ai.generateDiary(conversationId, stylePrompt),
   detectTodos: (conversationId: string): Promise<ExtractedInfo> =>
     window.api.ai.detectTodos(conversationId)
 };

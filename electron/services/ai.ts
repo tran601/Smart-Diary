@@ -46,12 +46,19 @@ const CHAT_SYSTEM_PROMPT_BASE =
   "You are a calm journaling assistant. Respond briefly and ask gentle follow-up questions.\n" +
   "You have access to the current date and time, which will be provided below.";
 
-const DIARY_SYSTEM_PROMPT =
+const DIARY_SYSTEM_PROMPT_BASE =
   "You are a journaling assistant. Based on the conversation, write a diary draft in Chinese.\n" +
   "Requirements:\n" +
   "1) First line must be '标题: <short title>'.\n" +
   "2) Then write 2-5 short paragraphs, covering key events and highlights.\n" +
   "3) Plain text only, no markdown and no JSON.";
+
+function buildDiarySystemPrompt(stylePrompt?: string): string {
+  const styleBlock = stylePrompt?.trim()
+    ? `\n\nWriting Style:\n${stylePrompt.trim()}`
+    : "";
+  return DIARY_SYSTEM_PROMPT_BASE + styleBlock;
+}
 
 const EXTRACT_SYSTEM_PROMPT_BASE =
   "You are an assistant that extracts structured information from a conversation.\n" +
@@ -311,11 +318,15 @@ export async function* generateAssistantReplyStream(
   }
 }
 
-export async function generateDiaryDraft(messages: ChatMessage[]): Promise<DiaryDraft> {
+export async function generateDiaryDraft(
+  messages: ChatMessage[],
+  stylePrompt?: string
+): Promise<DiaryDraft> {
   if (messages.length === 0) {
     throw new Error("Conversation is empty.");
   }
-  const openAiMessages = toOpenAiMessages(messages, DIARY_SYSTEM_PROMPT);
+  const systemPrompt = buildDiarySystemPrompt(stylePrompt);
+  const openAiMessages = toOpenAiMessages(messages, systemPrompt);
   const rawText = await createChatCompletion(openAiMessages, 0.4);
   if (!rawText) {
     throw new Error("Empty response from AI.");

@@ -334,7 +334,8 @@ function countWords(input: string) {
   if (!trimmed) {
     return 0;
   }
-  return trimmed.split(/\s+/).length;
+  // 移除所有空白字符后统计字符数（适用于中文等无空格分隔的语言）
+  return trimmed.replace(/\s/g, "").length;
 }
 
 function mapDiaryRow(row: DiaryRow): DiaryRecord {

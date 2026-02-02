@@ -705,13 +705,12 @@ export default function App() {
       return haystack.includes(diarySearchValue);
     });
   }, [diaries, diarySearchValue]);
-  const draftWordCount = useMemo(
-    () => stripHtmlText(editorContent).length,
+  const editorWordCount = useMemo(
+    () => stripHtmlText(editorContent).replace(/\s/g, "").length,
     [editorContent]
   );
   const isDrafting = Boolean(draftDate && !activeDiary);
   const editorDateLabel = activeDiary?.date ?? draftDate ?? "";
-  const editorWordCount = activeDiary?.wordCount ?? draftWordCount;
 
   const applySettings = useCallback(
     (nextSettings: AppSettingsPublic) => {
@@ -824,6 +823,17 @@ export default function App() {
       clearActiveDiary();
     }
   }, [activeTab, activeDiary, clearActiveDiary, draftDate]);
+
+  // 自动保存日记（防抖）
+  useEffect(() => {
+    if (!activeDiary) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void saveDiary();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [activeDiary, title, editorContent, saveDiary]);
 
   useEffect(() => {
     if (activeReport?.reportContent) {
@@ -1282,30 +1292,6 @@ export default function App() {
     [existingTaskKeys, existingTaskTitleKeys, updateConversationExtractedInfo]
   );
 
-  const handleSaveDiary = useCallback(async () => {
-    if (activeDiary) {
-      const saved = await saveDiary();
-      if (saved) {
-        message.success("日记已保存");
-      }
-      return;
-    }
-    if (!draftDate) {
-      message.warning("请选择或新建日记");
-      return;
-    }
-    const created = await createDiary(appMode, draftDate, {
-      title: title.trim() || "Untitled",
-      content: editorContent || EMPTY_EDITOR_CONTENT
-    });
-    if (created) {
-      setDraftDate(null);
-      message.success("日记已保存");
-    } else {
-      message.error("保存失败");
-    }
-  }, [activeDiary, appMode, createDiary, draftDate, editorContent, saveDiary, title]);
-
   const handleDeleteDiary = useCallback(() => {
     if (!activeDiary) {
       if (draftDate) {
@@ -1752,7 +1738,7 @@ export default function App() {
                                         {formatDiaryDate(diary.date)}
                                       </Text>
                                       <Text type="secondary" className="diary-item-words">
-                                        {diary.wordCount} 字
+                                        {stripHtmlText(diary.content ?? "").replace(/\s/g, "").length} 字
                                       </Text>
                                     </div>
                                     <Text className="diary-item-title">
@@ -1781,13 +1767,6 @@ export default function App() {
                   <Content className="editor-panel">
                     <div className="editor-actions">
                       <Space>
-                        <Button
-                          onClick={handleSaveDiary}
-                          loading={isDiarySaving}
-                          disabled={!activeDiary && !draftDate}
-                        >
-                          保存
-                        </Button>
                         <Button
                           danger
                           onClick={handleDeleteDiary}
@@ -2431,13 +2410,14 @@ export default function App() {
                             刷新
                           </Button>
                         </div>
-                        <List
-                          className="report-list-panel"
-                          dataSource={reports}
-                          loading={isReportLoading}
-                          locale={{ emptyText: "暂无周报" }}
-                          rowKey={(report) => report.id}
-                          renderItem={(report: WeeklyReport) => (
+                        <div className="report-list-wrapper">
+                          <List
+                            className="report-list-panel"
+                            dataSource={reports}
+                            loading={isReportLoading}
+                            locale={{ emptyText: "暂无周报" }}
+                            rowKey={(report) => report.id}
+                            renderItem={(report: WeeklyReport) => (
                             <List.Item
                               className={
                                 report.id === activeReport?.id
@@ -2455,6 +2435,7 @@ export default function App() {
                             </List.Item>
                           )}
                         />
+                        </div>
                       </Sider>
                       <Content className="report-panel">
                         {reportError ? (

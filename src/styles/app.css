@@ -963,6 +963,8 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .task-section {
@@ -974,6 +976,8 @@ body {
   flex-direction: column;
   gap: 12px;
   transition: background-color 0.3s ease, border-color 0.3s ease;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .task-section-header {
@@ -985,6 +989,9 @@ body {
 
 .task-list {
   background: transparent;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .task-list .ant-list-item {
@@ -1246,12 +1253,26 @@ body {
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
+.report-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .report-sider-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+}
+
+.report-list-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .report-list-panel {

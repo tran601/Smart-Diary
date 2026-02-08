@@ -21,6 +21,7 @@ import {
   linkConversationToDiary,
   listConversations,
   listDiaries,
+  listDiaryAttachments,
   listWeeklyReports,
   deleteWeeklyReport,
   updateWeeklyReport,
@@ -36,6 +37,14 @@ import {
   generateExtractedInfo,
   generateWeeklyReport
 } from "./services/ai";
+import {
+  cleanupDiaryImagesByDiaryId,
+  registerDiaryMediaProtocol,
+  removeDiaryAttachmentFile,
+  storeDiaryImage,
+  toDiaryMediaUrl,
+  type DiaryImageUploadInput
+} from "./services/diaryMedia";
 import { exportDatabaseBackup, importDatabaseBackup } from "./services/backup";
 
 let mainWindow: BrowserWindow | null = null;
@@ -63,6 +72,41 @@ type ExtractedTodo = {
   priority?: TodoPriority;
   notes?: string;
 };
+
+function isAttachmentSource(value: unknown): value is DiaryImageUploadInput["source"] {
+  return value === "upload" || value === "drag" || value === "paste";
+}
+
+function parseDiaryImageUploadInput(input: unknown): DiaryImageUploadInput {
+  const payload = input as Partial<DiaryImageUploadInput> | null | undefined;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid upload payload.");
+  }
+  if (typeof payload.diaryId !== "string" || !payload.diaryId.trim()) {
+    throw new Error("Diary ID is required for image upload.");
+  }
+  if (!isAttachmentSource(payload.source)) {
+    throw new Error("Invalid image upload source.");
+  }
+  if (
+    !payload.data ||
+    !(
+      payload.data instanceof ArrayBuffer ||
+      ArrayBuffer.isView(payload.data) ||
+      Buffer.isBuffer(payload.data)
+    )
+  ) {
+    throw new Error("Image bytes are missing.");
+  }
+
+  return {
+    diaryId: payload.diaryId,
+    fileName: typeof payload.fileName === "string" ? payload.fileName : undefined,
+    mimeType: typeof payload.mimeType === "string" ? payload.mimeType : undefined,
+    source: payload.source,
+    data: payload.data
+  };
+}
 
 function stripHtml(input: string) {
   return input.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -279,7 +323,30 @@ function registerIpcHandlers() {
   );
   ipcMain.handle("diary:get", (_event, id) => getDiary(id));
   ipcMain.handle("diary:list", () => listDiaries());
-  ipcMain.handle("diary:delete", (_event, id) => deleteDiary(id));
+  ipcMain.handle("diary:delete", (_event, id) => {
+    const deleted = deleteDiary(id);
+    if (deleted) {
+      cleanupDiaryImagesByDiaryId(id);
+    }
+    return deleted;
+  });
+  ipcMain.handle("diary:uploadImage", (_event, input) => {
+    const uploadInput = parseDiaryImageUploadInput(input);
+    const diary = getDiary(uploadInput.diaryId);
+    if (!diary) {
+      throw new Error("Diary not found.");
+    }
+    return storeDiaryImage(uploadInput);
+  });
+  ipcMain.handle("diary:listAttachments", (_event, diaryId: string) =>
+    listDiaryAttachments(diaryId).map((item) => ({
+      ...item,
+      src: toDiaryMediaUrl(item.storagePath)
+    }))
+  );
+  ipcMain.handle("diary:deleteAttachment", (_event, attachmentId: string) =>
+    removeDiaryAttachmentFile(attachmentId)
+  );
 
   ipcMain.handle("conversation:create", () => {
     ensureAiMode();
@@ -485,6 +552,7 @@ async function runOfflineCheck() {
 
 app.whenReady().then(() => {
   try {
+    registerDiaryMediaProtocol();
     initDatabase();
   } catch (error) {
     console.error("Failed to initialize database", error);

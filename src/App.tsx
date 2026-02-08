@@ -18,15 +18,27 @@
   Typography,
   Tooltip
 } from "antd";
-import { CloseOutlined } from "@ant-design/icons";
+import { CloseOutlined, PictureOutlined } from "@ant-design/icons";
 import type { CalendarProps } from "antd";
 import calendarLocale from "antd/es/calendar/locale/zh_CN";
 import dayjs, { type Dayjs } from "dayjs";
 import "dayjs/locale/zh-cn";
+import Quill from "quill";
 import ReactQuill from "react-quill";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent
+} from "react";
 import { installNetworkGuard } from "./services/networkGuard";
 import { backupService } from "./services/backup.service";
+import { diaryService } from "./services/diary.service";
 import { settingsService } from "./services/settings.service";
 import { useAppStore } from "./stores/appStore";
 import { useDiaryStore } from "./stores/diaryStore";
@@ -41,7 +53,8 @@ import type {
   WeeklyReport,
   AppSettingsPublic,
   DiaryMode,
-  ExtractedInfo
+  ExtractedInfo,
+  DiaryAttachmentSource
 } from "./types/database";
 import "react-quill/dist/quill.snow.css";
 import "./styles/app.css";
@@ -261,6 +274,38 @@ function normalizeExtractedInfo(info?: ExtractedInfo): ExtractedInfo {
 }
 
 const EMPTY_EDITOR_CONTENT = "<p><br></p>";
+const MAX_DIARY_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const DIARY_MEDIA_PROTOCOL_PREFIX = "smart-diary-media://";
+
+function isDiaryMediaImageUrl(url: string) {
+  return url.startsWith(DIARY_MEDIA_PROTOCOL_PREFIX);
+}
+
+function toOriginalDiaryMediaUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "smart-diary-media:") {
+      return url;
+    }
+    parsed.searchParams.set("variant", "original");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+type QuillImageFormatClass = {
+  sanitize: (url: string) => string;
+};
+
+const quillImageFormat = Quill.import("formats/image") as QuillImageFormatClass;
+const originalQuillImageSanitize = quillImageFormat.sanitize.bind(quillImageFormat);
+quillImageFormat.sanitize = (url: string) => {
+  if (url.startsWith(DIARY_MEDIA_PROTOCOL_PREFIX)) {
+    return url;
+  }
+  return originalQuillImageSanitize(url);
+};
 
 function formatDiaryDate(date: string) {
   return dayjs(date).format("YYYY/MM/DD ddd");
@@ -652,7 +697,16 @@ export default function App() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [calendarValue, setCalendarValue] = useState<Dayjs>(() => dayjs());
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isEditorDragOver, setIsEditorDragOver] = useState(false);
+  const [imageViewer, setImageViewer] = useState<{
+    previewSrc: string;
+    originalSrc: string;
+  } | null>(null);
+  const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
+  const isCreatingDraftDiaryRef = useRef(false);
   const quillRef = useRef<ReactQuill | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
   const [isEditingReport, setIsEditingReport] = useState(false);
   const [reportDraft, setReportDraft] = useState<{
@@ -874,6 +928,14 @@ export default function App() {
   }, [appMode, activeTab]);
 
   useEffect(() => {
+    if (!imageViewer) {
+      setImageViewerSrc(null);
+      return;
+    }
+    setImageViewerSrc(imageViewer.originalSrc);
+  }, [imageViewer]);
+
+  useEffect(() => {
     if (activeDiary) {
       setDraftDate(null);
     }
@@ -885,6 +947,40 @@ export default function App() {
       clearActiveDiary();
     }
   }, [activeTab, activeDiary, clearActiveDiary, draftDate]);
+
+  // 新一天草稿态自动创建日记：先落库生成卡片，再走既有自动保存链
+  useEffect(() => {
+    if (!draftDate || activeDiary || isCreatingDraftDiaryRef.current) {
+      return;
+    }
+    const normalizedTitle = title.trim();
+    const normalizedContent = editorContent || EMPTY_EDITOR_CONTENT;
+    const hasInput = normalizedTitle.length > 0 || hasDiaryContent(normalizedContent);
+    if (!hasInput) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (isCreatingDraftDiaryRef.current) {
+        return;
+      }
+      isCreatingDraftDiaryRef.current = true;
+      void createDiary(appMode, draftDate, {
+        title: normalizedTitle,
+        content: normalizedContent
+      })
+        .then((created) => {
+          if (!created) {
+            message.error("自动创建日记失败，请重试");
+          }
+        })
+        .finally(() => {
+          isCreatingDraftDiaryRef.current = false;
+        });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [activeDiary, appMode, createDiary, draftDate, editorContent, title]);
 
   // 自动保存日记（防抖）
   useEffect(() => {
@@ -1611,19 +1707,180 @@ export default function App() {
     setIsOnboardingOpen(true);
   };
 
-  const modeNoticeText =
-    appMode === "ai"
-      ? "AI 模式：对话内容会发送到 AI API。"
-      : "传统模式完全离线，不会发起任何网络请求。";
+  const uploadDiaryImages = useCallback(
+    async (files: File[], source: DiaryAttachmentSource) => {
+      if (!activeDiary) {
+        message.warning("请先选择已保存日记，再上传图片。");
+        return;
+      }
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) {
+        message.info("未检测到图片文件");
+        return;
+      }
 
-  const focusEditor = () => {
+      const editor = quillRef.current?.getEditor?.();
+      if (!editor) {
+        message.error("编辑器未就绪，请稍后重试");
+        return;
+      }
+
+      setIsUploadingImage(true);
+      let insertIndex = editor.getSelection(true)?.index ?? editor.getLength();
+      let uploadedCount = 0;
+
+      try {
+        for (const file of imageFiles) {
+          if (file.size > MAX_DIARY_IMAGE_SIZE_BYTES) {
+            message.error(`图片 "${file.name || "未命名"}" 超过 10MB 限制`);
+            continue;
+          }
+          try {
+            const data = await file.arrayBuffer();
+            const result = await diaryService.uploadImage({
+              diaryId: activeDiary.id,
+              fileName: file.name,
+              mimeType: file.type,
+              source,
+              data
+            });
+            editor.insertEmbed(insertIndex, "image", result.src, "user");
+            editor.insertText(insertIndex + 1, "\n", "user");
+            insertIndex += 2;
+            uploadedCount += 1;
+          } catch (err) {
+            const errorText = err instanceof Error ? err.message : String(err);
+            message.error(`上传失败：${errorText}`);
+          }
+        }
+      } finally {
+        setIsUploadingImage(false);
+        setIsEditorDragOver(false);
+      }
+
+      if (uploadedCount > 0) {
+        message.success(`已插入 ${uploadedCount} 张图片`);
+      }
+    },
+    [activeDiary]
+  );
+
+  const handleOpenImagePicker = useCallback(() => {
+    if (!activeDiary) {
+      message.warning("请先选择已保存日记，再上传图片。");
+      return;
+    }
+    imageInputRef.current?.click();
+  }, [activeDiary]);
+
+  const handleImageInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const fileList = event.target.files ? Array.from(event.target.files) : [];
+      void uploadDiaryImages(fileList, "upload");
+      event.target.value = "";
+    },
+    [uploadDiaryImages]
+  );
+
+  const handleEditorDragOver = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      const hasImage = Array.from(event.dataTransfer?.items ?? []).some(
+        (item) => item.kind === "file" && item.type.startsWith("image/")
+      );
+      if (!hasImage) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setIsEditorDragOver(true);
+    },
+    []
+  );
+
+  const handleEditorDragLeave = useCallback(() => {
+    setIsEditorDragOver(false);
+  }, []);
+
+  const handleEditorDrop = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      void uploadDiaryImages(imageFiles, "drag");
+    },
+    [uploadDiaryImages]
+  );
+
+  const handleEditorPasteCapture = useCallback(
+    (event: ReactClipboardEvent<HTMLDivElement>) => {
+      const files: File[] = [];
+      for (const item of Array.from(event.clipboardData?.items ?? [])) {
+        if (item.kind !== "file" || !item.type.startsWith("image/")) {
+          continue;
+        }
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
+        }
+      }
+      if (files.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      void uploadDiaryImages(files, "paste");
+    },
+    [uploadDiaryImages]
+  );
+
+  const focusEditor = useCallback(() => {
     const editor = quillRef.current?.getEditor?.();
     if (editor) {
       editor.focus();
       return;
     }
     quillRef.current?.focus?.();
-  };
+  }, []);
+
+  const handleEditorBodyClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (target instanceof HTMLImageElement) {
+        const src = target.getAttribute("src") ?? "";
+        if (isDiaryMediaImageUrl(src)) {
+          setImageViewer({
+            previewSrc: src,
+            originalSrc: toOriginalDiaryMediaUrl(src)
+          });
+          return;
+        }
+      }
+      focusEditor();
+    },
+    [focusEditor]
+  );
+
+  const handleCloseImageViewer = useCallback(() => {
+    setImageViewer(null);
+    setImageViewerSrc(null);
+  }, []);
+
+  const handleImageViewerError = useCallback(() => {
+    if (!imageViewer) {
+      return;
+    }
+    if (imageViewerSrc === imageViewer.previewSrc) {
+      return;
+    }
+    setImageViewerSrc(imageViewer.previewSrc);
+  }, [imageViewer, imageViewerSrc]);
+
+  const modeNoticeText =
+    appMode === "ai"
+      ? "AI 模式：对话内容会发送到 AI API。"
+      : "传统模式完全离线，不会发起任何网络请求。";
 
   return (
     <Layout className="app-shell">
@@ -1830,6 +2087,15 @@ export default function App() {
                     <div className="editor-actions">
                       <Space>
                         <Button
+                          type="default"
+                          icon={<PictureOutlined />}
+                          onClick={handleOpenImagePicker}
+                          loading={isUploadingImage}
+                          disabled={!activeDiary}
+                        >
+                          上传图片
+                        </Button>
+                        <Button
                           danger
                           onClick={handleDeleteDiary}
                           loading={isDiarySaving}
@@ -1838,6 +2104,14 @@ export default function App() {
                           删除
                         </Button>
                       </Space>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageInputChange}
+                        style={{ display: "none" }}
+                      />
                     </div>
                     {diaryError && !activeDiary ? (
                       <div className="panel-state panel-state--error">
@@ -1869,7 +2143,14 @@ export default function App() {
                             {isDrafting ? " · 未保存" : ""}
                           </Text>
                         </div>
-                        <div className="editor-body" onClick={focusEditor}>
+                        <div
+                          className={`editor-body${isEditorDragOver ? " is-drag-over" : ""}`}
+                          onClick={handleEditorBodyClick}
+                          onDragOver={handleEditorDragOver}
+                          onDragLeave={handleEditorDragLeave}
+                          onDrop={handleEditorDrop}
+                          onPasteCapture={handleEditorPasteCapture}
+                        >
                           <ReactQuill
                             ref={quillRef}
                             theme="snow"
@@ -1951,7 +2232,7 @@ export default function App() {
                   <div className="settings-section">
                     <Text strong>备份与恢复</Text>
                     <Text type="secondary">
-                      备份文件不包含 AI API Key，导入后需重新配置。
+                      备份包含数据库与图片附件；不包含 AI API Key，导入后需重新配置。
                     </Text>
                     <Space wrap>
                       <Button
@@ -1966,7 +2247,7 @@ export default function App() {
                       </Button>
                     </Space>
                     {lastBackupPath ? (
-                      <Text type="secondary">最近文件：{lastBackupPath}</Text>
+                      <Text type="secondary">最近备份：{lastBackupPath}</Text>
                     ) : null}
                   </div>
                   <div className="settings-section">
@@ -2697,6 +2978,23 @@ export default function App() {
           ]}
         />
       </Content>
+      <Modal
+        title="图片预览"
+        open={Boolean(imageViewer)}
+        onCancel={handleCloseImageViewer}
+        footer={null}
+        width="80vw"
+        className="image-viewer-modal"
+      >
+        {imageViewerSrc ? (
+          <img
+            src={imageViewerSrc}
+            alt="日记图片预览"
+            className="image-viewer-image"
+            onError={handleImageViewerError}
+          />
+        ) : null}
+      </Modal>
       <Modal
         title="欢迎使用 Smart Diary"
         open={isOnboardingOpen}

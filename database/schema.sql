@@ -26,6 +26,27 @@ CREATE INDEX IF NOT EXISTS idx_diaries_date ON diaries(date);
 CREATE INDEX IF NOT EXISTS idx_diaries_mode ON diaries(mode);
 CREATE INDEX IF NOT EXISTS idx_diaries_deleted ON diaries(is_deleted);
 
+CREATE TABLE IF NOT EXISTS diary_attachments (
+  id TEXT PRIMARY KEY,
+  diary_id TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_ext TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  sha256 TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'upload',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (diary_id) REFERENCES diaries(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_diary_attachments_diary ON diary_attachments(diary_id);
+CREATE INDEX IF NOT EXISTS idx_diary_attachments_deleted ON diary_attachments(is_deleted);
+CREATE INDEX IF NOT EXISTS idx_diary_attachments_storage ON diary_attachments(storage_path);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   diary_id TEXT,

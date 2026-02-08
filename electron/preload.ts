@@ -13,7 +13,13 @@ const api = {
       ipcRenderer.invoke("diary:update", id, input),
     get: (id: string) => ipcRenderer.invoke("diary:get", id),
     list: () => ipcRenderer.invoke("diary:list"),
-    delete: (id: string) => ipcRenderer.invoke("diary:delete", id)
+    delete: (id: string) => ipcRenderer.invoke("diary:delete", id),
+    uploadImage: (input: Record<string, unknown>) =>
+      ipcRenderer.invoke("diary:uploadImage", input),
+    listAttachments: (diaryId: string) =>
+      ipcRenderer.invoke("diary:listAttachments", diaryId),
+    deleteAttachment: (attachmentId: string) =>
+      ipcRenderer.invoke("diary:deleteAttachment", attachmentId)
   },
   conversation: {
     create: () => ipcRenderer.invoke("conversation:create"),

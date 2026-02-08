@@ -42,6 +42,37 @@ export interface DiaryUpdateInput {
   isEdited?: boolean;
 }
 
+export type DiaryAttachmentSource = "upload" | "drag" | "paste";
+
+export interface DiaryAttachment {
+  id: string;
+  diaryId: string;
+  storagePath: string;
+  mimeType: string;
+  fileExt: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  sha256: string;
+  source: DiaryAttachmentSource;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  isDeleted: boolean;
+}
+
+export interface DiaryImageUploadInput {
+  diaryId: string;
+  fileName?: string;
+  mimeType?: string;
+  source: DiaryAttachmentSource;
+  data: ArrayBuffer;
+}
+
+export interface DiaryImageUploadResult {
+  attachment: DiaryAttachment;
+  src: string;
+}
+
 export interface DiaryFilter {
   mode?: DiaryMode;
   tags?: string[];

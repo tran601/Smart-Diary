@@ -64,6 +64,7 @@ type ExtractedInfo = {
 
 type TaskPriority = "low" | "medium" | "high" | "urgent";
 type TaskStatus = "not_started" | "in_progress" | "completed";
+export type DiaryAttachmentSource = "upload" | "drag" | "paste";
 
 type TaskCreateInput = {
   title: string;
@@ -129,6 +130,22 @@ type TaskRow = {
   completed_at: string | null;
   conversation_id: string | null;
   diary_id: string | null;
+  created_at: string;
+  updated_at: string;
+  is_deleted: number | null;
+};
+
+type DiaryAttachmentRow = {
+  id: string;
+  diary_id: string;
+  storage_path: string;
+  mime_type: string;
+  file_ext: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  sha256: string;
+  source: DiaryAttachmentSource | null;
   created_at: string;
   updated_at: string;
   is_deleted: number | null;
@@ -225,6 +242,34 @@ export type TaskRecord = {
   completedAt: string | null;
   conversationId: string | null;
   diaryId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isDeleted: boolean;
+};
+
+export type DiaryAttachmentCreateInput = {
+  diaryId: string;
+  storagePath: string;
+  mimeType: string;
+  fileExt: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+  sha256: string;
+  source: DiaryAttachmentSource;
+};
+
+export type DiaryAttachmentRecord = {
+  id: string;
+  diaryId: string;
+  storagePath: string;
+  mimeType: string;
+  fileExt: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  sha256: string;
+  source: DiaryAttachmentSource;
   createdAt: string;
   updatedAt: string;
   isDeleted: boolean;
@@ -396,6 +441,24 @@ function mapTaskRow(row: TaskRow): TaskRecord {
     completedAt: row.completed_at,
     conversationId: row.conversation_id,
     diaryId: row.diary_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isDeleted: row.is_deleted === 1
+  };
+}
+
+function mapDiaryAttachmentRow(row: DiaryAttachmentRow): DiaryAttachmentRecord {
+  return {
+    id: row.id,
+    diaryId: row.diary_id,
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+    fileExt: row.file_ext,
+    sizeBytes: row.size_bytes,
+    width: row.width,
+    height: row.height,
+    sha256: row.sha256,
+    source: row.source ?? "upload",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isDeleted: row.is_deleted === 1
@@ -943,13 +1006,135 @@ export function listDiaries(): DiaryRecord[] {
 }
 
 export function deleteDiary(id: string): boolean {
+  const now = new Date().toISOString();
+  const tx = getDb().transaction((diaryId: string, updatedAt: string) => {
+    const diaryResult = getDb()
+      .prepare(
+        "UPDATE diaries SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0"
+      )
+      .run(updatedAt, diaryId);
+
+    getDb()
+      .prepare(
+        "UPDATE diary_attachments SET is_deleted = 1, updated_at = ? WHERE diary_id = ? AND is_deleted = 0"
+      )
+      .run(updatedAt, diaryId);
+
+    return diaryResult.changes > 0;
+  });
+
+  const deleted = tx(id, now);
+  return deleted;
+}
+
+export function createDiaryAttachment(
+  input: DiaryAttachmentCreateInput
+): DiaryAttachmentRecord {
+  const now = new Date().toISOString();
+  const id = randomUUID();
+
+  getDb()
+    .prepare(
+      `INSERT INTO diary_attachments (
+        id, diary_id, storage_path, mime_type, file_ext, size_bytes, width, height,
+        sha256, source, created_at, updated_at, is_deleted
+      ) VALUES (
+        @id, @diary_id, @storage_path, @mime_type, @file_ext, @size_bytes, @width, @height,
+        @sha256, @source, @created_at, @updated_at, 0
+      )`
+    )
+    .run({
+      id,
+      diary_id: input.diaryId,
+      storage_path: input.storagePath,
+      mime_type: input.mimeType,
+      file_ext: input.fileExt,
+      size_bytes: input.sizeBytes,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      sha256: input.sha256,
+      source: input.source,
+      created_at: now,
+      updated_at: now
+    });
+
+  const row = getDb()
+    .prepare("SELECT * FROM diary_attachments WHERE id = ?")
+    .get(id) as DiaryAttachmentRow;
+
+  return mapDiaryAttachmentRow(row);
+}
+
+export function getDiaryAttachment(id: string): DiaryAttachmentRecord | null {
+  const row = getDb()
+    .prepare("SELECT * FROM diary_attachments WHERE id = ? AND is_deleted = 0")
+    .get(id) as DiaryAttachmentRow | undefined;
+
+  return row ? mapDiaryAttachmentRow(row) : null;
+}
+
+export function listDiaryAttachments(diaryId: string): DiaryAttachmentRecord[] {
+  return listDiaryAttachmentsByDiaryId(diaryId, false);
+}
+
+export function listDiaryAttachmentsByDiaryId(
+  diaryId: string,
+  includeDeleted = false
+): DiaryAttachmentRecord[] {
+  const whereClause = includeDeleted
+    ? "diary_id = ?"
+    : "diary_id = ? AND is_deleted = 0";
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM diary_attachments WHERE ${whereClause} ORDER BY created_at ASC`
+    )
+    .all(diaryId) as DiaryAttachmentRow[];
+
+  return rows.map(mapDiaryAttachmentRow);
+}
+
+export function deleteDiaryAttachment(id: string): DiaryAttachmentRecord | null {
+  const updatedAt = new Date().toISOString();
   const result = getDb()
     .prepare(
-      "UPDATE diaries SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0"
+      "UPDATE diary_attachments SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0"
     )
-    .run(new Date().toISOString(), id);
+    .run(updatedAt, id);
 
-  return result.changes > 0;
+  if (result.changes === 0) {
+    return null;
+  }
+
+  const row = getDb()
+    .prepare("SELECT * FROM diary_attachments WHERE id = ?")
+    .get(id) as DiaryAttachmentRow | undefined;
+
+  return row ? mapDiaryAttachmentRow(row) : null;
+}
+
+export function listAllActiveDiaryAttachments(): DiaryAttachmentRecord[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM diary_attachments WHERE is_deleted = 0 ORDER BY created_at ASC")
+    .all() as DiaryAttachmentRow[];
+
+  return rows.map(mapDiaryAttachmentRow);
+}
+
+export function getDiaryAttachmentsByStoragePaths(
+  storagePaths: string[]
+): DiaryAttachmentRecord[] {
+  if (storagePaths.length === 0) {
+    return [];
+  }
+
+  const placeholders = storagePaths.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM diary_attachments WHERE storage_path IN (${placeholders}) AND is_deleted = 0`
+    )
+    .all(...storagePaths) as DiaryAttachmentRow[];
+
+  return rows.map(mapDiaryAttachmentRow);
 }
 
 export function getWeeklyReportStats(

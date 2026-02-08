@@ -3,9 +3,12 @@
 import type {
   AppSettings,
   AppSettingsPublic,
+  DiaryAttachment,
   ChatMessage,
   Diary,
   DiaryCreateInput,
+  DiaryImageUploadInput,
+  DiaryImageUploadResult,
   DiaryUpdateInput,
   Conversation,
   ExtractedInfo,
@@ -32,6 +35,9 @@ declare global {
         get: (id: string) => Promise<Diary | null>;
         list: () => Promise<Diary[]>;
         delete: (id: string) => Promise<boolean>;
+        uploadImage: (input: DiaryImageUploadInput) => Promise<DiaryImageUploadResult>;
+        listAttachments: (diaryId: string) => Promise<Array<DiaryAttachment & { src: string }>>;
+        deleteAttachment: (attachmentId: string) => Promise<DiaryAttachment | null>;
       };
       conversation: {
         create: () => Promise<Conversation>;

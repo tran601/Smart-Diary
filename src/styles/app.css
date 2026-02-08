@@ -556,6 +556,12 @@ body {
   overflow: auto;
 }
 
+.editor-body.is-drag-over {
+  border: 1px dashed var(--accent-primary);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+
 .editor-quill {
   display: flex;
   flex-direction: column;
@@ -583,6 +589,29 @@ body {
 
 .editor-quill .ql-editor p {
   margin: 0 0 0.85em;
+}
+
+.editor-quill .ql-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+
+.image-viewer-modal .ant-modal-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+}
+
+.image-viewer-image {
+  max-width: 100%;
+  max-height: 78vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
 }
 
 .editor-quill .ql-editor h1 {
